@@ -1,0 +1,7 @@
+[PASS] Laplacian is symmetric  max|W-W^T|=0.00e+00
+[PASS] Laplacian is PSD  min eigval=3.15e-16
+[PASS] Rows sum to zero (L*1 = 0)  max|row sum|=1.11e-15
+[PASS] Kernel dim == 1 (connected)  eigvals<1e-8: 1
+[PASS] Analytic d[src] == 0  d[0]=0.0
+[PASS] Analytic d >= 0 everywhere  min d=0.0
+[PASS] Analytic d max ~= pi (antipode on unit sphere)  max d=3.141593 vs pi=3.141593

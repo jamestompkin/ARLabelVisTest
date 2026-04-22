@@ -1,0 +1,8 @@
+nv=642  nf=1280
+Tier 1: sym residual = 0.000e+00
+Tier 1: max|row-sum|  = 1.110e-15
+alpha_hat=0.001  u(src)=0.000000e+00  min(u)=0.000000e+00  max(u)=3.045815e+00  argmax=4
+alpha_hat=0.01  u(src)=0.000000e+00  min(u)=0.000000e+00  max(u)=3.010365e+00  argmax=4
+alpha_hat=0.05  u(src)=0.000000e+00  min(u)=0.000000e+00  max(u)=2.886024e+00  argmax=4
+alpha_hat=0.25  u(src)=0.000000e+00  min(u)=0.000000e+00  max(u)=2.292218e+00  argmax=4
+alpha_hat=1  u(src)=0.000000e+00  min(u)=0.000000e+00  max(u)=1.250456e+00  argmax=4
