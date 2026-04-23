@@ -25,18 +25,27 @@ log = @(s) fprintf(fid, '%s\n', s);
 oldwd = cd(rgd_dir);
 cleanupObj = onCleanup(@() cd(oldwd));
 
-% --- Tier 1: cotangent Laplacian ---
+% --- Tier 0: operator-level dumps (for the port) ---
 Mm = MeshClass('icosphere_sub3');
 [W, A] = cotLaplacian(Mm);
 writematrix(full(W), fullfile(out, 'matlab_cot_laplacian_dense.csv'));
+writematrix(Mm.ta, fullfile(out, 'matlab_ta.csv'));
+writematrix(Mm.va, fullfile(out, 'matlab_va.csv'));
+writematrix(Mm.Nf, fullfile(out, 'matlab_Nf.csv'));
+% G is sparse 3nf x nv; dump COO triplets for exact reconstruction on the Python side
+[gi, gj, gv] = find(Mm.G);
+writematrix([gi gj gv], fullfile(out, 'matlab_G_coo.csv'));
+writematrix([Mm.nv; Mm.nf], fullfile(out, 'matlab_nv_nf.csv'));
 
 sym_err  = full(max(max(abs(W - W.'))));
 rowsum   = full(max(abs(sum(W, 2))));
 nvnf = sprintf('nv=%d  nf=%d', Mm.nv, Mm.nf);
 fprintf('%s\n', nvnf); log(nvnf);
-s1 = sprintf('Tier 1: sym residual = %.3e', sym_err);
-s2 = sprintf('Tier 1: max|row-sum|  = %.3e', rowsum);
+s1 = sprintf('Tier 0: cot Laplacian sym residual = %.3e', sym_err);
+s2 = sprintf('Tier 0: cot Laplacian max|row-sum|  = %.3e', rowsum);
 fprintf('%s\n%s\n', s1, s2); log(s1); log(s2);
+s3 = sprintf('Tier 0: dumped ta, va, Nf, G (COO, nnz=%d)', nnz(Mm.G));
+fprintf('%s\n', s3); log(s3);
 
 % --- Tier 2: RGD-ADMM at a sweep of alpha_hat ---
 alphas = [0.001, 0.01, 0.05, 0.25, 1.0];

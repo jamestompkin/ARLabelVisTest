@@ -9,6 +9,77 @@ from skimage import measure
 import pyvista as pv
 from scipy.spatial import cKDTree
 
+def neural_bounded_mesh(bounded_binvox_filepath: str, dim: int,
+                        reference_points: np.ndarray, *,
+                        subdivide: bool = True,
+                        target_faces: int | None = None) -> trimesh.Trimesh:
+    """Build a triangle mesh from a pre-trained neural-bounded binvox.
+
+    Marching-cubes on the binary voxel grid + (optional) loop-subdivision via
+    PyVista, then scaled back into the coordinate frame of ``reference_points``
+    (same affine as ``bindToNeuralBounding`` uses internally: origin shifted to
+    reference-point min, radii scaled by 1.1 * max_axis_extent / dim).
+
+    The resulting mesh is watertight and single-component by construction
+    (a binary voxel grid has a closed boundary surface), so it can be passed
+    straight to MATLAB/Python RGD solvers without the `pointsToMesh`
+    re-voxelize-and-remesh step that fragments sparse point clouds.
+
+    Args:
+        bounded_binvox_filepath: path to the .binvox produced by the neural
+            bounding trainer (e.g., ``data/neural_bounding_CIELAB_256.binvox``).
+        dim: voxel resolution used to train the binvox.
+        reference_points: (N, 3) array in the target color space; only its
+            min/max along each axis is read, to scale the mesh into place.
+        subdivide: if True, loop-subdivide once (quadruples face count;
+            smoother but slower). Defaults to True to match the thesis
+            pipeline's behaviour.
+        target_faces: if set, decimate the mesh to this many faces via
+            open3d quadric decimation. Useful for fast e2e validation on
+            meshes that would otherwise be ~500K faces.
+
+    Returns:
+        trimesh.Trimesh in ``reference_points`` coordinates.
+    """
+    with open(bounded_binvox_filepath, "rb") as fp:
+        voxels = read_as_3d_array(fp).data
+
+    verts_vox, faces_mc, _, _ = measure.marching_cubes(voxels, 0.0)
+
+    if subdivide:
+        pv_faces = np.hstack([np.insert(f, 0, 3) for f in faces_mc]).astype(np.int64)
+        mesh_pv = pv.PolyData(verts_vox, pv_faces)
+        mesh_pv.subdivide(1, subfilter="loop", inplace=True)
+        new_verts = np.asarray(mesh_pv.points, dtype=float)
+        new_faces = np.asarray(mesh_pv.faces, dtype=np.int64).reshape(-1, 4)[:, 1:]
+    else:
+        new_verts = verts_vox.astype(float)
+        new_faces = faces_mc.astype(np.int64)
+
+    x_min, y_min, z_min = reference_points.min(axis=0)
+    x_max, y_max, z_max = reference_points.max(axis=0)
+    max_range = 1.1 * max(x_max - x_min, y_max - y_min, z_max - z_min)
+    scaled = new_verts * (max_range / dim) + np.array([x_min, y_min, z_min])
+
+    mesh = trimesh.Trimesh(vertices=scaled, faces=new_faces, process=True)
+
+    if target_faces is not None and len(mesh.faces) > target_faces:
+        import open3d as o3d
+        o3d_mesh = o3d.geometry.TriangleMesh()
+        o3d_mesh.vertices = o3d.utility.Vector3dVector(mesh.vertices)
+        o3d_mesh.triangles = o3d.utility.Vector3iVector(mesh.faces)
+        o3d_mesh = o3d_mesh.simplify_quadric_decimation(
+            target_number_of_triangles=int(target_faces)
+        )
+        mesh = trimesh.Trimesh(
+            vertices=np.asarray(o3d_mesh.vertices),
+            faces=np.asarray(o3d_mesh.triangles),
+            process=True,
+        )
+
+    return mesh
+
+
 def bindToNeuralBounding(bounded_binvox_filepath, dim, allPoints, allRGBs, visualize=False):
     voxels = np.zeros((dim, dim, dim))
     with open(bounded_binvox_filepath, "rb") as fp:

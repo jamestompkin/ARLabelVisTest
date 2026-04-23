@@ -1,160 +1,109 @@
+"""Sparse -> dense 256^3 LUT interpolation with fast, vectorized I/O.
+
+Takes sparse (RGB index, output-value) pairs sampled on a regular grid and
+upsamples to a dense 256^3 LUT. Writes either a numpy binary (.npy, fast,
+~0.5 s at 256^3) or a comma-separated text file (.txt, ~30 s via np.savetxt;
+needed for Unity's `LookupTableRender.cs`).
+"""
+from __future__ import annotations
+
+from pathlib import Path
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
-class LABData:
-    l: float
-    a: float
-    b: float
 
-def InitializeLookupTexture(a, b, c):
-    lst = [[ [LABData for col in range(a)] for col in range(b)] for row in range(c)]
-    return lst
-
-def RGBToLAB(RGB):
-    RGB = np.array(RGB) / 255.0
-    mask = RGB > 0.04045
-
-    RGB[mask] = ((RGB[mask] + 0.055) / 1.055) ** 2.4
-    RGB[~mask] /= 12.92
-    RGB *= 100
-
-
-    XYZ = np.dot(RGB, np.array([[0.4124, 0.3576, 0.1805],
-                                [0.2126, 0.7152, 0.0722],
-                                [0.0193, 0.1192, 0.9505]]))
-
-    XYZ /= np.array([95.047, 100.0, 108.883])
-    mask = XYZ > 0.008856
-    XYZ[mask] = XYZ[mask] ** (1/3)
-    XYZ[~mask] = (7.787 * XYZ[~mask]) + (16/116)
-
-    L = (116 * XYZ[1]) - 16
-    a = 500 * (XYZ[0] - XYZ[1])
-    b = 200 * (XYZ[1] - XYZ[2])
-
-    return np.asarray([L, a, b])
-
-def interpolate_files(rgbVals, labVals, new_LAB_filepath):
-    labVals = np.asarray(labVals)
-    rgbVals = np.asarray(rgbVals)
-
-    new_LAB_file = open(new_LAB_filepath, "w")
-
-    LookupTexture =  InitializeLookupTexture(256, 256, 256)
-
-    print(len(rgbVals))
-    print(len(labVals))
-
-    # Write existing rgb and lab values into the lookup texture
-    for idx in range(len(rgbVals)):
-        rgb = rgbVals[idx]
-        lab = labVals[idx]
-        labPoint = LABData()
-        labPoint.l = lab[0]
-        labPoint.a = lab[1]
-        labPoint.b = lab[2]
-
-        LookupTexture[rgb[0]][rgb[1]][rgb[2]] = labPoint
-
-    for r in range(0, 256):
-        for g in range(0, 256):
-            for b in range(0, 256):
-                interpolatedLAB = LookupTexture[r][g][b]
-                new_LAB_file.write(str(float(interpolatedLAB.l)) + "," + str(float(interpolatedLAB.a)) + "," + str(float(interpolatedLAB.b)) + "\n")
-
-    new_LAB_file.close()
-
-def interpolate_interval(rgbVals, labVals, new_LAB_filepath, interval):
-    if interval == 1:
-        interpolate_files(rgbVals, labVals, new_LAB_filepath)
+def _write_lut(lut: np.ndarray, path: Path) -> None:
+    """Write a dense (256,256,256,3) LUT to disk, format chosen by extension."""
+    if path.suffix == ".npy":
+        np.save(path, lut)
+    elif path.suffix == ".txt":
+        np.savetxt(path, lut.reshape(-1, 3), delimiter=",", fmt="%.6f")
     else:
+        raise ValueError(
+            f"Unsupported output extension {path.suffix!r}. Use .npy (fast) or .txt (Unity)."
+        )
+    print(f"Saved LUT -> {path}")
 
-        labVals = np.asarray(labVals)
-        rgbVals = np.asarray(rgbVals)
 
-        new_LAB_file = open(new_LAB_filepath, "w")
+def _assemble_dense(rgb_idx: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """Direct scatter: place each (r,g,b)->value at lut[r,g,b].
 
-        LookupTexture =  InitializeLookupTexture(256, 256, 256)
+    Assumes the inputs cover every voxel (interval == 1 case).
+    """
+    lut = np.zeros((256, 256, 256, 3), dtype=np.float32)
+    lut[rgb_idx[:, 0], rgb_idx[:, 1], rgb_idx[:, 2]] = values
+    return lut
 
-        # Write existing rgb and lab values into the lookup texture
-        for idx in range(len(rgbVals)):
-            rgb = rgbVals[idx]
-            lab = labVals[idx]
-            labPoint = LABData()
-            labPoint.l = lab[0]
-            labPoint.a = lab[1]
-            labPoint.b = lab[2]
 
-            LookupTexture[rgb[0]][rgb[1]][rgb[2]] = labPoint
+def _assemble_sparse_and_interp(rgb_idx: np.ndarray, values: np.ndarray,
+                                interval: int) -> np.ndarray:
+    """Scatter onto a sparse regular grid, then trilinearly interpolate to 256^3."""
+    step_values = np.arange(-1, 256, interval)
+    step_values[0] = 0
+    k = len(step_values)
+    sparse = np.zeros((k, k, k, 3), dtype=np.float32)
 
-        # Use the built-in RegularGridInterpolator
-        stepsize = int(256/interval)
-        if interval == 1:
-            x = np.arange(0, 256, interval)
-            x[0] = 0
-            y = np.arange(0, 256, interval)
-            y[0] = 0
-            z = np.arange(0, 256, interval)
-            z[0] = 0
-            stepsize = 0
-        else:
-            x = np.arange(-1, 256, interval)
-            x[0] = 0
-            y = np.arange(-1, 256, interval)
-            y[0] = 0
-            z = np.arange(-1, 256, interval)
-            z[0] = 0
-        values = np.zeros((stepsize + 1, stepsize + 1, stepsize + 1, 3)) #Step size + 1 number of values in each dimension
-        for i in range(stepsize + 1):
-            for j in range(stepsize + 1):
-                for k in range(stepsize + 1):
-                    LAB = LookupTexture[x[i]][y[j]][z[k]]
-                    values[i,j,k, 0] = LAB.l
-                    values[i,j,k, 1] = LAB.a
-                    values[i,j,k, 2] = LAB.b
-        fn = RegularGridInterpolator((x,y,z), values)
+    i_idx = np.searchsorted(step_values, rgb_idx[:, 0])
+    j_idx = np.searchsorted(step_values, rgb_idx[:, 1])
+    k_idx = np.searchsorted(step_values, rgb_idx[:, 2])
+    sparse[i_idx, j_idx, k_idx] = values
 
-        for r in range(0, 256):
-            for g in range(0, 256):
-                for b in range(0, 256):
-                    interpolatedLAB = fn(np.asarray([r, g, b]))[0]
-                    new_LAB_file.write(str(interpolatedLAB[0]) + "," + str(interpolatedLAB[1]) + "," + str(interpolatedLAB[2]) + "\n")
+    fn = RegularGridInterpolator((step_values, step_values, step_values), sparse)
+    # Query all 16.7M voxels at once. ~1-2 s peak memory.
+    r, g, b = np.meshgrid(np.arange(256, dtype=np.float32),
+                          np.arange(256, dtype=np.float32),
+                          np.arange(256, dtype=np.float32), indexing="ij")
+    pts = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=-1)
+    lut = fn(pts).reshape(256, 256, 256, 3).astype(np.float32)
+    return lut
 
-        new_LAB_file.close()
-    print("Saved file to: " + new_LAB_filepath)
 
-def interpolate_from_files(RGB_filepath, LAB_filepath, new_LAB_filepath):
-    RGB_file = open(RGB_filepath, "r")
-    LAB_file = open(LAB_filepath, "r")
+def interpolate_interval(rgbVals, labVals, new_LAB_filepath: str, interval: int) -> None:
+    """Upsample sparse (rgbVals, labVals) to a dense 256^3 LUT and save.
 
-    rgbVals = RGB_file.readlines()
-    labVals = LAB_file.readlines()
+    Args:
+        rgbVals: (N, 3) int array of input RGB indices sampled on a regular
+            ``interval``-spaced grid (e.g., stepSize=8 -> values 0,7,15,...,255).
+        labVals: (N, 3) float array of output color values (typically CIELAB).
+        new_LAB_filepath: output path. ``.npy`` -> binary; ``.txt`` -> legacy
+            per-voxel text (Unity-readable).
+        interval: the stepSize used to generate ``rgbVals``. ``interval == 1``
+            means the inputs are already dense.
+    """
+    rgb_idx = np.asarray(rgbVals, dtype=np.int32)
+    values = np.asarray(labVals, dtype=np.float32)
+    if rgb_idx.shape != values.shape:
+        raise ValueError(f"row count mismatch: {rgb_idx.shape} vs {values.shape}")
 
-    rgbVals = [np.asarray(rgb.strip("\n").split(",")).astype(np.uint8) for rgb in rgbVals]
-    labVals = [np.asarray(lab.strip("\n").split(",")).astype('float') for lab in labVals]
+    if interval == 1:
+        lut = _assemble_dense(rgb_idx, values)
+    else:
+        lut = _assemble_sparse_and_interp(rgb_idx, values, interval)
 
-    labVals = np.asarray(labVals)
-    rgbVals = np.asarray(rgbVals)
+    _write_lut(lut, Path(new_LAB_filepath))
 
-    new_LAB_file = open(new_LAB_filepath, "w")
 
-    LookupTexture =  InitializeLookupTexture(256, 256, 256)
+def interpolate_files(rgbVals, labVals, new_LAB_filepath: str) -> None:
+    """interval == 1 convenience alias (direct scatter, no trilinear interp)."""
+    interpolate_interval(rgbVals, labVals, new_LAB_filepath, interval=1)
 
-    # Write existing rgb and lab values into the lookup texture
-    for idx in range(len(rgbVals)):
-        rgb = rgbVals[idx]
-        lab = labVals[idx]
-        labPoint = LABData()
-        labPoint.l = lab[0]
-        labPoint.a = lab[1]
-        labPoint.b = lab[2]
 
-        LookupTexture[rgb[0]][rgb[1]][rgb[2]] = labPoint
+def interpolate_from_files(rgb_filepath: str, lab_filepath: str, new_LAB_filepath: str) -> None:
+    """Read paired sparse text files and write a dense LUT.
 
-    for r in range(0, 256):
-        for g in range(0, 256):
-            for b in range(0, 256):
-                interpolatedLAB = LookupTexture[r][g][b]
-                new_LAB_file.write(str(interpolatedLAB.l) + "," + str(interpolatedLAB.a) + "," + str(interpolatedLAB.b) + "\n")
+    Each input file has one triple per line (comma-separated). rgb values are
+    integer input indices; lab values are floats. The output extension picks
+    the binary-vs-text path.
+    """
+    rgb_idx = np.loadtxt(rgb_filepath, delimiter=",", dtype=np.int32)
+    values = np.loadtxt(lab_filepath, delimiter=",", dtype=np.float32)
 
-    new_LAB_file.close()
+    # Infer interval from the sparse sample density.
+    ux = np.unique(rgb_idx[:, 0])
+    if len(ux) == 256:
+        interval = 1
+    else:
+        diffs = np.diff(ux)
+        interval = int(diffs[diffs > 0][0]) if len(diffs) else 1
+
+    interpolate_interval(rgb_idx, values, new_LAB_filepath, interval)

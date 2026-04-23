@@ -6,6 +6,7 @@ Codebase for the Yang-Maccini senior thesis and the derived IEEE VIS 2026 short 
 
 ```
 arlabelvis/        # library — methods. Importable, no side effects on import.
+  rgd/             #   regularized geodesic distances (Python port of Edelstein 2023, replaces MATLAB)
   colors.py        #   RGB <-> LAB/OKLAB conversions
   distances.py     #   furthest-color search + geodesic-field rendering
   bounding.py      #   sphere / neural / optimized-mesh bounding methods
@@ -57,7 +58,7 @@ CPU PyTorch by default. For CUDA:
 uv pip install --index-url https://download.pytorch.org/whl/cu121 torch
 ```
 
-MATLAB: install R2026a (or any release with `matlab -batch`) with the Parallel Computing Toolbox (optional — `parfor` degrades to serial without it).
+MATLAB is **not required**. The Python port of Edelstein 2023 RGD in [arlabelvis/rgd/](arlabelvis/rgd/) is byte-compatible with the original MATLAB and replaces it on the critical path. `external/matlab_rgd/` is retained only as an independent reference implementation for A/B comparison. Install MATLAB only if you want to re-run that comparison.
 
 Neural bounding submodule has its own environment (do not merge with the main env):
 
@@ -76,7 +77,10 @@ The pipeline is a four-stage handshake — each stage's output feeds the next:
 1. **Voxelize the color space**: `uv run python -m scripts.to_voxels` → `external/neural_bounding/data/3D/<space>_<interval>_<dim>.binvox`
 2. **Train neural bounder** (in the submodule's conda env): `./run.sh` over that binvox → `data/neural_bounding_<space>_<dim>.binvox`
 3. **Build smoothed OFF**: `uv run python -m scripts.smooth_mesh` → `external/matlab_rgd/RGB2<space>_<smoothing>_<interval>.off`
-4. **Run MATLAB RGD**: `matlab -batch "cd('external/matlab_rgd'); demo"` → `external/matlab_rgd/max_indices_<...>.txt`
+4. **Run all-pairs RGD**: `uv run python -m scripts.run_rgd_python --from-config` → `external/matlab_rgd/max_indices_<...>.txt`
+   - Uses [arlabelvis/rgd/admm.py](arlabelvis/rgd/admm.py) (port of Edelstein 2023's `rdg_ADMM.m`).
+   - Validated against MATLAB to rel L2 ≤ 5e-14 on a 10K-vertex mesh, 100% argmax agreement on 642-source all-pairs, 99.8% on non-symmetric 2562-source mesh with every mismatch a <5e-15 plateau flip. See `validation/compare_matlab_vs_python.py` (8 regression tiers) and `validation/MATLAB_PORT_PLAN.md`.
+   - Fallback A/B reference: `matlab -batch "cd('external/matlab_rgd'); demo"` writes the same file in the same format. Only needed for independent verification.
 5. **Assemble + interpolate LUT**: `uv run python -m scripts.full_pipeline` → `AllCandidateLABvals_<...>.txt`
 
 For figures and metrics:

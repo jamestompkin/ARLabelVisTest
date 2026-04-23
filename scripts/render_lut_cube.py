@@ -10,11 +10,10 @@ def main():
     p.add_argument("rgb_file", help="AllCorrespondingRGBVals_*.txt")
     p.add_argument("-o", "--out", required=True, help="output PNG")
     p.add_argument("--value", default="lab", choices=["lab", "oklab", "rgb"])
-    p.add_argument("--stride", type=int, default=2, help="face-downsample stride")
     args = p.parse_args()
 
     lut = load_lut(args.lab_file, args.rgb_file, value=args.value)
-    render_rgb_cube_isometric(lut, save_path=args.out, stride=args.stride)
+    render_rgb_cube_isometric(lut, save_path=args.out)
     print(f"wrote {args.out}")
 
 

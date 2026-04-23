@@ -24,6 +24,11 @@ dependencies = [
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
     "opencv-python>=4.9",
+    "pymeshlab>=2025.7.post1",
+    "libigl>=2.6.2",
+    "threadpoolctl>=3.6.0",
+    "pypardiso>=0.4.7",
+    "cholespy>=2.2.0",
 ]
 
 [tool.uv]

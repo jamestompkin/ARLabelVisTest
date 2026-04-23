@@ -28,3 +28,15 @@ __pycache__/
 /external/matlab_rgd/*.off
 /external/matlab_rgd/max_indices_*.txt
 /external/matlab_rgd/u_D1.csv
+
+# Stein 2020 curved-hessian repo is kept as a reference only and cloned on
+# demand (see TODO.md). Too big to track (42 MB of C++ + CMake); equivalent
+# algorithm is exposed via `libigl` Python bindings already in the env.
+/external/stein2020_curved_hessian/
+
+# Large regenerable outputs
+/results/bench_lut_io/
+/results/e2e_demo/_*.png
+/results/e2e_demo/pv_test.png
+/validation/e2e/out/
+/validation/e2e/out_neural/

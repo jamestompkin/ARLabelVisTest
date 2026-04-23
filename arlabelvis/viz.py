@@ -32,21 +32,61 @@ import pyvista as pv
 
 # ----------------------------- I/O -----------------------------------------
 
-def load_lut(lab_file: str | Path, rgb_file: str | Path, value: str = "lab") -> np.ndarray:
-    """Load a LUT from the codebase's paired text format.
+def save_lut(lut: np.ndarray, path: str | Path) -> None:
+    """Save a dense (256,256,256,3) LUT to disk.
 
-    Args:
-        lab_file: one comma-separated LAB (or RGB) triple per line.
-        rgb_file: one comma-separated *input* RGB index triple per line.
-        value: "lab" (default) if lab_file is CIELAB; "oklab" or "rgb" for
-            those intermediate spaces. The return is always sRGB.
+    Format is chosen by file extension. Dtype is preserved (float32 for
+    LAB/OKLAB values from the interpolate stage; uint8 for already-rendered
+    sRGB LUTs).
 
-    Returns:
-        (256, 256, 256, 3) uint8 array of LUT output sRGB values. Unfilled
-        voxels are nearest-neighbor filled.
+      - ``.npy``  numpy binary (~0.5 s save, ~0.1 s load at 256^3). Preferred
+                  for the Python research loop.
+      - ``.txt``  one ``r,g,b`` row per voxel in x-major order (Unity
+                  compat; ~30 s at 256^3 via np.savetxt).
     """
-    lab_file, rgb_file = Path(lab_file), Path(rgb_file)
-    vals = np.loadtxt(lab_file, delimiter=",", dtype=np.float32)
+    path = Path(path)
+    lut = np.asarray(lut)
+    if path.suffix == ".npy":
+        np.save(path, lut)
+    elif path.suffix == ".txt":
+        fmt = "%d" if np.issubdtype(lut.dtype, np.integer) else "%.6f"
+        np.savetxt(path, lut.reshape(-1, 3), delimiter=",", fmt=fmt)
+    else:
+        raise ValueError(f"unsupported extension {path.suffix!r}; use .npy or .txt")
+
+
+def load_lut(lab_file: str | Path, rgb_file: str | Path | None = None,
+             value: str = "lab") -> np.ndarray:
+    """Load a LUT.
+
+    Two modes, selected by what's passed:
+
+      - ``load_lut("lut.npy")``   Fast path: loads a dense (256,256,256,3)
+                                   uint8 array written by ``save_lut``. The
+                                   array is returned unchanged.
+      - ``load_lut(lab_file, rgb_file, value=...)``   Sparse text pair (legacy
+                                   pipeline output). Reconstructs a dense
+                                   256^3 array via per-axis nearest-neighbor
+                                   fill of the sparse grid, with colour-space
+                                   conversion per ``value``.
+
+    ``value`` is only consulted for the sparse-text path:
+      - ``"lab"``    ``lab_file`` is CIELAB; converted via ``lab2rgb``.
+      - ``"oklab"``  ``lab_file`` is OKLAB.
+      - ``"rgb"``    ``lab_file`` already holds 0-255 sRGB.
+
+    Returns (256, 256, 256, 3) uint8 sRGB.
+    """
+    path = Path(lab_file)
+    if rgb_file is None:
+        if path.suffix == ".npy":
+            return np.load(path)
+        raise ValueError(
+            f"load_lut({path!r}) without rgb_file requires a .npy path; got {path.suffix!r}"
+        )
+
+    rgb_file = Path(rgb_file)
+    vals = np.loadtxt(path, delimiter=",", dtype=np.float32)
     idx = np.loadtxt(rgb_file, delimiter=",", dtype=np.int32)
     if vals.shape != idx.shape:
         raise ValueError(f"row count mismatch: {vals.shape} vs {idx.shape}")
@@ -60,11 +100,33 @@ def load_lut(lab_file: str | Path, rgb_file: str | Path, value: str = "lab") -> 
     else:
         raise ValueError(f"unknown value={value!r}")
 
+    # Fast path: if the input grid is a regular 3-D rectangular grid (the
+    # common case — the pipeline always samples the RGB cube on a grid), we
+    # can expand to 256^3 by per-axis nearest-index lookup in ~10 ms instead
+    # of paying for a full scipy.ndimage.distance_transform_edt on the 256^3
+    # sparse array (~8 s).
+    ux = np.unique(idx[:, 0])
+    uy = np.unique(idx[:, 1])
+    uz = np.unique(idx[:, 2])
+    if len(idx) == len(ux) * len(uy) * len(uz):
+        # Scatter into a (k_x, k_y, k_z, 3) dense small array
+        ix = np.searchsorted(ux, idx[:, 0])
+        iy = np.searchsorted(uy, idx[:, 1])
+        iz = np.searchsorted(uz, idx[:, 2])
+        sparse = np.zeros((len(ux), len(uy), len(uz), 3), dtype=np.uint8)
+        sparse[ix, iy, iz] = out_rgb
+        # Per-axis nearest-index map from full-range [0,255] to sparse-index
+        q = np.arange(256)
+        nx = np.abs(q[:, None] - ux[None, :]).argmin(axis=1).astype(np.int32)
+        ny = np.abs(q[:, None] - uy[None, :]).argmin(axis=1).astype(np.int32)
+        nz = np.abs(q[:, None] - uz[None, :]).argmin(axis=1).astype(np.int32)
+        return sparse[nx[:, None, None], ny[None, :, None], nz[None, None, :]]
+
+    # Fallback: irregular sparse pattern, use Euclidean distance transform
     lut = np.zeros((256, 256, 256, 3), dtype=np.uint8)
     filled = np.zeros((256, 256, 256), dtype=bool)
     lut[idx[:, 0], idx[:, 1], idx[:, 2]] = out_rgb
     filled[idx[:, 0], idx[:, 1], idx[:, 2]] = True
-
     if not filled.all():
         _, nearest = distance_transform_edt(~filled, return_distances=True, return_indices=True)
         lut = lut[nearest[0], nearest[1], nearest[2]]
@@ -94,66 +156,72 @@ def render_rgb_cube_isometric(
     save_path: str | Path | None = None,
     *,
     title: str | None = None,
-    figsize: tuple[float, float] = (6, 6),
-    dpi: int = 200,
-    stride: int = 2,
-    elev: float = 25,
-    azim: float = 30,
+    window_size: tuple[int, int] = (1200, 1200),
     show: bool = False,
-) -> plt.Figure:
-    """Render three visible outer faces of the 256^3 RGB cube, textured with
-    LUT output colors. Paper-ready 3D isometric view.
+) -> None:
+    """Render three visible outer faces of the 256^3 RGB cube via PyVista/VTK.
 
-    stride downsamples the 256x256 faces for faster rendering (stride=2 -> 128x128).
+    Each face is a 256x256 uniform cell grid with per-cell RGB (no texture,
+    no interpolation, no face normals in the color path). Faces are guaranteed
+    to be geometrically and color-wise continuous across shared edges: the
+    cell at `lut[n-1, n-1, z]` appears identically on the R=n-1 face (at G=n-1
+    edge) and on the G=n-1 face (at R=n-1 edge).
     """
     n = lut.shape[0]
-    s = slice(None, None, stride)
-    # Three visible faces when viewed from +elev/+azim: r=n-1, g=n-1, b=n-1
-    # Use quads with per-face facecolors.
-    def face(indices_r, indices_g, indices_b):
-        """Make a (H, W, 3) quad grid + colors for the given face."""
-        R, G, B = np.meshgrid(indices_r, indices_g, indices_b, indexing="ij")
-        shape = R.shape
-        colors = lut[R, G, B] / 255.0
-        return R.reshape(-1), G.reshape(-1), B.reshape(-1), colors.reshape(-1, 3), shape
 
-    fig = plt.figure(figsize=figsize, dpi=dpi)
-    ax = fig.add_subplot(111, projection="3d")
+    pl = pv.Plotter(off_screen=not show, window_size=window_size)
+    pl.set_background("white")
 
-    # Plot three faces as surface plots
-    idx = np.arange(0, n, stride, dtype=np.int32)
-    # Face r=n-1 (ri fixed high, vary G and B)
-    G, B = np.meshgrid(idx, idx, indexing="ij")
-    R = np.full_like(G, n - 1)
-    ax.plot_surface(R, G, B, rstride=1, cstride=1,
-                    facecolors=lut[n - 1][s, s] / 255.0, shade=False,
-                    antialiased=False, linewidth=0)
-    # Face g=n-1
-    R, B = np.meshgrid(idx, idx, indexing="ij")
-    G = np.full_like(R, n - 1)
-    ax.plot_surface(R, G, B, rstride=1, cstride=1,
-                    facecolors=lut[:, n - 1][s, s] / 255.0, shade=False,
-                    antialiased=False, linewidth=0)
-    # Face b=n-1
-    R, G = np.meshgrid(idx, idx, indexing="ij")
-    B = np.full_like(R, n - 1)
-    ax.plot_surface(R, G, B, rstride=1, cstride=1,
-                    facecolors=lut[:, :, n - 1][s, s] / 255.0, shade=False,
-                    antialiased=False, linewidth=0)
+    # VTK ImageData cell ordering: cell_id = x + y*nx + z*nx*ny (x fastest).
+    # For each face one axis has a single cell layer; the two varying axes
+    # need to land in the right slots for continuity across shared edges.
+    for fixed_axis, fixed_val in [(0, n - 1), (1, n - 1), (2, n - 1)]:
+        # Face slice. axis=0 -> (y,z); axis=1 -> (x,z); axis=2 -> (x,y).
+        face = np.take(lut, fixed_val, axis=fixed_axis)  # (n, n, 3)
 
-    ax.set_xlabel("R"); ax.set_ylabel("G"); ax.set_zlabel("B")
-    ax.set_xlim(0, n - 1); ax.set_ylim(0, n - 1); ax.set_zlim(0, n - 1)
-    ax.set_box_aspect((1, 1, 1))
-    ax.view_init(elev=elev, azim=azim)
+        # Flatten into VTK cell order. The two in-plane axes come out of
+        # np.take in the order of the remaining original axes (skipping
+        # fixed_axis). VTK wants x fastest, then y, then z. For each face
+        # the "first varying axis" in `face` corresponds to the lower of the
+        # two remaining 3-D axes, which is also VTK's faster axis -> so we
+        # transpose so that axis becomes the fast (inner) one when flattened.
+        cells = np.ascontiguousarray(
+            face.transpose(1, 0, 2).reshape(-1, 3)
+        ).astype(np.uint8)
+
+        dims = [n + 1, n + 1, n + 1]
+        dims[fixed_axis] = 2  # 2 points = 1 cell thick along the fixed axis
+        origin = [0.0, 0.0, 0.0]
+        origin[fixed_axis] = float(fixed_val)
+
+        grid = pv.ImageData(dimensions=tuple(dims), spacing=(1.0, 1.0, 1.0),
+                            origin=tuple(origin))
+        grid.cell_data["rgb"] = cells
+        pl.add_mesh(grid, scalars="rgb", rgb=True,
+                    show_edges=False, lighting=False)
+
+    # True isometric view of the +XYZ corner (camera along (1,1,1)/sqrt(3))
+    size = float(n - 1)
+    center = size / 2.0
+    dist = size * 2.2
+    pl.camera_position = [
+        (center + dist, center + dist, center + dist),  # camera
+        (center, center, center),                        # focus
+        (0.0, 0.0, 1.0),                                 # up
+    ]
+    pl.enable_parallel_projection()  # proper orthographic isometric
+    pl.camera.parallel_scale = size * 0.9
+    pl.show_axes()
+
     if title:
-        ax.set_title(title)
-    plt.tight_layout()
+        pl.add_text(title, position="upper_edge", font_size=12, color="black")
 
     if save_path:
-        fig.savefig(save_path, bbox_inches="tight", pad_inches=0.05)
-    if show:
-        plt.show()
-    return fig
+        pl.show(screenshot=str(save_path))
+    elif show:
+        pl.show()
+    else:
+        pl.close()
 
 
 def render_color_space_pointcloud(
