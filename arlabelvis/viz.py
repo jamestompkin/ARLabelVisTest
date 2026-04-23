@@ -159,14 +159,38 @@ def render_srgb_cube_isometric(
     window_size: tuple[int, int] = (1200, 1200),
     show: bool = False,
 ) -> None:
-    """Render three visible outer faces of the 256^3 sRGB input cube via PyVista/VTK.
+    """Render three visible outer faces of the 256^3 sRGB input cube.
 
-    Each face is a 256x256 uniform cell grid with per-cell RGB (no texture,
-    no interpolation, no face normals in the color path). Faces are guaranteed
-    to be geometrically and color-wise continuous across shared edges: the
-    cell at `lut[n-1, n-1, z]` appears identically on the R=n-1 face (at G=n-1
-    edge) and on the G=n-1 face (at R=n-1 edge).
+    Default path uses PyVista/VTK for a high-quality per-cell RGB render.
+    Falls back to a matplotlib ``plot_surface`` renderer if the VTK DLLs
+    cannot be loaded (e.g., blocked by Windows Application Control) so the
+    paper pipeline still runs end-to-end. The mpl fallback is coarser and
+    visually distinct but suitable for review drafts.
     """
+    try:
+        _render_srgb_cube_pyvista(lut, save_path, title=title,
+                                  window_size=window_size, show=show)
+    except ImportError as e:
+        if "vtk" not in str(e).lower():
+            raise
+        print(f"[viz] PyVista/VTK import failed ({e}); using matplotlib "
+              f"fallback. Unblock VTK and re-run for publication-quality "
+              f"renders.", flush=True)
+        _render_srgb_cube_matplotlib(lut, save_path, title=title)
+
+
+def _render_srgb_cube_pyvista(
+    lut: np.ndarray,
+    save_path,
+    *,
+    title=None,
+    window_size=(1200, 1200),
+    show=False,
+) -> None:
+    """PyVista/VTK cube renderer. Each face is a 256x256 uniform cell grid
+    with per-cell RGB (no texture, no interpolation, no face normals in the
+    color path). Faces are guaranteed to be geometrically and color-wise
+    continuous across shared edges."""
     n = lut.shape[0]
 
     pl = pv.Plotter(off_screen=not show, window_size=window_size)
@@ -222,6 +246,54 @@ def render_srgb_cube_isometric(
         pl.show()
     else:
         pl.close()
+
+
+def _render_srgb_cube_matplotlib(
+    lut: np.ndarray,
+    save_path,
+    *,
+    title=None,
+    figsize=(8, 8),
+    downsample: int = 4,
+    dpi: int = 150,
+) -> None:
+    """Matplotlib fallback cube renderer. Plots 3 outer faces as
+    ``plot_surface`` meshes with per-face-cell RGB colors. Downsampled by
+    ``downsample`` (default 4 -> 64x64 cells per face) for rendering speed;
+    the PyVista path is the reference at full 256x256."""
+    n = lut.shape[0]
+    step = max(1, int(downsample))
+    idx = np.arange(0, n, step, dtype=np.int32)
+
+    fig = plt.figure(figsize=figsize, dpi=dpi)
+    ax = fig.add_subplot(111, projection="3d")
+    for axis, val in [(0, n - 1), (1, n - 1), (2, n - 1)]:
+        face = np.take(lut, val, axis=axis).astype(np.float32) / 255.0
+        face_ds = face[::step, ::step]
+        nn = face_ds.shape[0]
+        if axis == 0:
+            Y, Z = np.meshgrid(idx, idx, indexing="ij")
+            X = np.full_like(Y, val, dtype=float)
+        elif axis == 1:
+            X, Z = np.meshgrid(idx, idx, indexing="ij")
+            Y = np.full_like(X, val, dtype=float)
+        else:
+            X, Y = np.meshgrid(idx, idx, indexing="ij")
+            Z = np.full_like(X, val, dtype=float)
+        ax.plot_surface(X, Y, Z, facecolors=face_ds,
+                        rcount=nn, ccount=nn, shade=False, edgecolor="none")
+
+    ax.set_xlim(0, n - 1); ax.set_ylim(0, n - 1); ax.set_zlim(0, n - 1)
+    ax.view_init(elev=30, azim=45)
+    ax.set_box_aspect((1, 1, 1))
+    ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
+    ax.set_axis_off()
+    if title:
+        ax.set_title(title, fontsize=11)
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
 
 
 def render_color_space_pointcloud(

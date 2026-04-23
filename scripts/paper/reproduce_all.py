@@ -4,6 +4,8 @@ Usage:
   uv run python -m scripts.paper.reproduce_all                # run all
   uv run python -m scripts.paper.reproduce_all --force        # don't skip existing
   uv run python -m scripts.paper.reproduce_all --only fig_hue_histograms tab_geometry_smoothing
+  uv run python -m scripts.paper.reproduce_all --shortpaper-only
+  uv run python -m scripts.paper.reproduce_all --skip-shortpaper
 """
 from __future__ import annotations
 
@@ -13,13 +15,23 @@ import time
 import traceback
 from pathlib import Path
 
-from scripts.paper._configs import FIGURES, TABLES
+from scripts.paper._configs import FIGURES, TABLES, SHORTPAPER_FIGURES
+from scripts.paper._shared import SHORTPAPER_FIG_DIR
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _resolve(out: str) -> Path:
+    """Resolve an entry's declared output path. Absolute paths and plain
+    relative-to-ROOT paths work as before; the ``shortpaper:<name>`` sentinel
+    resolves against SHORTPAPER_FIG_DIR (which lives outside the repo)."""
+    if out.startswith("shortpaper:"):
+        return SHORTPAPER_FIG_DIR / out[len("shortpaper:"):]
+    return ROOT / out
+
+
 def _outputs_exist(entry) -> bool:
-    return all((ROOT / o).exists() for o in entry["outputs"])
+    return all(_resolve(o).exists() for o in entry["outputs"])
 
 
 def _run_one(fig_id: str, entry: dict, force: bool) -> tuple[bool, float, str]:
@@ -42,13 +54,22 @@ def main():
     p.add_argument("--only", nargs="+", default=None, help="run only these IDs")
     p.add_argument("--skip-tables", action="store_true")
     p.add_argument("--skip-figures", action="store_true")
+    p.add_argument("--skip-shortpaper", action="store_true",
+                   help="skip short-paper (ieeevis2026) outputs")
+    p.add_argument("--shortpaper-only", action="store_true",
+                   help="run only short-paper (ieeevis2026) outputs")
     args = p.parse_args()
 
     entries = {}
-    if not args.skip_figures:
-        entries.update(FIGURES)
-    if not args.skip_tables:
-        entries.update(TABLES)
+    if args.shortpaper_only:
+        entries.update(SHORTPAPER_FIGURES)
+    else:
+        if not args.skip_figures:
+            entries.update(FIGURES)
+        if not args.skip_tables:
+            entries.update(TABLES)
+        if not args.skip_shortpaper:
+            entries.update(SHORTPAPER_FIGURES)
     if args.only:
         entries = {k: v for k, v in entries.items() if k in args.only}
         missing = [k for k in args.only if k not in entries]

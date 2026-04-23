@@ -1,6 +1,7 @@
 """Small helpers shared by figure/table scripts."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import numpy as np
 
@@ -9,6 +10,19 @@ FIG_DIR = ROOT / "results" / "paper" / "figures"
 TAB_DIR = ROOT / "results" / "paper" / "tables"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 TAB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# Short-paper figures land in the Overleaf project's ieeevis2026/figures
+# directory (takes precedence over ../figures/ thanks to the paper's
+# \graphicspath). Overridable via $ARLABELVIS_SHORTPAPER_FIG_DIR. Default
+# is James's checkout path; other contributors can set the env var.
+_DEFAULT_SHORTPAPER_DIR = (
+    "C:/Users/james/Brown Dropbox/James Tompkin/Apps/Overleaf/"
+    "Lana Yang-Maccini Senior Thesis/ieeevis2026/figures"
+)
+SHORTPAPER_FIG_DIR = Path(
+    os.environ.get("ARLABELVIS_SHORTPAPER_FIG_DIR", _DEFAULT_SHORTPAPER_DIR)
+)
 
 
 def _cielab_lut_to_u8(lut_cielab: np.ndarray) -> np.ndarray:
