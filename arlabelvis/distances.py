@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.spatial import KDTree, ConvexHull
 import math
-from arlabelvis.colors import RGBtoLAB
-from skimage.color import deltaE_cie76, deltaE_ciede2000, lab2rgb
+from arlabelvis.colors import sRGBtoLAB
+from skimage.color import deltaE_cie76, deltaE_ciede94, deltaE_ciede2000, lab2rgb
 import pyvista as pv
 
 def closest_vertices_batch(lab_points: np.ndarray, mesh_tree: KDTree) -> np.ndarray:
@@ -50,13 +50,37 @@ def furthest_rgd(vertices, allPoints, allRGBs, matlab_path):
     return np.array(furthestRGBs)
 
 def furthest_delta_e76_points(inputRGB, allLABPoints):
-    inputLAB = RGBtoLAB([inputRGB])[0]
+    # Note: ΔE₇₆ is by definition sqrt((ΔL)² + (Δa)² + (Δb)²) — i.e. Euclidean
+    # distance in CIELAB. This path is kept because it returns hull-LAB values
+    # (interpolated in LAB by downstream stages) rather than grid sRGB values
+    # (interpolated in sRGB by `furthest_euclidean_lab_points`).
+    inputLAB = sRGBtoLAB([inputRGB])[0]
     allLABPoints = np.array(allLABPoints)
 
     distances = deltaE_cie76(np.tile(inputLAB, (len(allLABPoints), 1)), allLABPoints)
     max_distance_index = np.argmax(distances)
 
     return allLABPoints[max_distance_index]
+
+
+def furthest_delta_e94_points(inputRGB, allLABPoints):
+    """Farthest CIELAB point from inputRGB under ΔE₉₄ (CIE94, graphic-arts
+    weights). Returns the chosen LAB coordinate."""
+    inputLAB = sRGBtoLAB([inputRGB])[0]
+    allLABPoints = np.asarray(allLABPoints)
+    tiled = np.tile(inputLAB, (len(allLABPoints), 1))
+    distances = deltaE_ciede94(tiled, allLABPoints)
+    return allLABPoints[int(np.argmax(distances))]
+
+
+def furthest_delta_e00_points(inputRGB, allLABPoints):
+    """Farthest CIELAB point from inputRGB under ΔE₀₀ (CIEDE2000). Returns
+    the chosen LAB coordinate."""
+    inputLAB = sRGBtoLAB([inputRGB])[0]
+    allLABPoints = np.asarray(allLABPoints)
+    tiled = np.tile(inputLAB, (len(allLABPoints), 1))
+    distances = deltaE_ciede2000(tiled, allLABPoints)
+    return allLABPoints[int(np.argmax(distances))]
 
 def furthest_euclidean_lab_points(allLABs, chunk_size=10_000):
     lab = allLABs.astype(np.float32)

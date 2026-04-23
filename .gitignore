@@ -40,3 +40,10 @@ __pycache__/
 /results/e2e_demo/pv_test.png
 /validation/e2e/out/
 /validation/e2e/out_neural/
+/validation/e2e/*_max_indices*.csv
+
+# Paper pipeline regenerables
+# Content-addressable LUT cache (each .npy is ~200 MB; rebuild via reproduce_all)
+/data/luts/
+# Per-panel intermediate renders used when compositing multi-panel figures
+/results/paper/figures/_tmp_*/

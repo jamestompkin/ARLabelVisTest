@@ -1,0 +1,16 @@
+\begin{table}[H]
+\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+\textbf{Method} & \textbf{Grad Max} & \textbf{Grad Avg} & \textbf{Sat Avg} & \textbf{Int Avg} & \textbf{\#Colors} & \textbf{Eff. Palette} & \textbf{Hue H (bits)} & \textbf{Mean NN $\Delta E$}\\
+\midrule
+Hull & 72.75 & 5.175 & 0.796 & 0.765 & 181637 & 7.9 & 3.73 & 1.74\\
+$\sigma=0.25$ & 48.78 & 5.274 & 0.839 & 0.767 & 1395242 & 627.0 & 7.98 & 2.31\\
+$\sigma=2.0$ & 50.51 & 5.179 & 0.837 & 0.762 & 1317656 & 1055.4 & 8.05 & 2.37\\
+$\sigma=4.0$ & 47.93 & 5.295 & 0.835 & 0.768 & 1315097 & 765.8 & 7.96 & 2.28\\
+NB & 48.21 & 4.758 & 0.826 & 0.808 & 1961208 & 1894.9 & 8.22 & 2.33\\
+\bottomrule
+\end{tabular}
+\caption{Geometry smoothing comparison on the CIELAB color space, with regularized geodesic distances at $\hat{\alpha}=0.05$. Hull = unsmoothed convex hull of the CIELAB-mapped RGB cube; NB = neural bounding.}
+\label{tab:geometry_smoothing_comparison}
+\end{table}

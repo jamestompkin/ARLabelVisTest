@@ -1,6 +1,6 @@
 """Sparse -> dense 256^3 LUT interpolation with fast, vectorized I/O.
 
-Takes sparse (RGB index, output-value) pairs sampled on a regular grid and
+Takes sparse (sRGB index, output-value) pairs sampled on a regular grid and
 upsamples to a dense 256^3 LUT. Writes either a numpy binary (.npy, fast,
 ~0.5 s at 256^3) or a comma-separated text file (.txt, ~30 s via np.savetxt;
 needed for Unity's `LookupTableRender.cs`).

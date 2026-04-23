@@ -26,7 +26,7 @@ from arlabelvis.interpolate import interpolate_interval
 from arlabelvis.meshing import generate_LABs
 from arlabelvis.off import read_off
 from arlabelvis.rgd.allpairs import compute_all_pairs_argmax
-from arlabelvis.viz import render_rgb_cube_isometric
+from arlabelvis.viz import render_srgb_cube_isometric
 
 INTERVAL = 16
 ALPHA_HAT = 0.25
@@ -90,9 +90,9 @@ def main():
     print(f"     Python: {py_g}")
     print(f"     MATLAB: {mat_g}")
 
-    render_rgb_cube_isometric(py_rgb, save_path=OUT_DIR / "cube_python.png",
+    render_srgb_cube_isometric(py_rgb, save_path=OUT_DIR / "cube_python.png",
                               title="Python, neural-bounded CIELAB")
-    render_rgb_cube_isometric(mat_rgb, save_path=OUT_DIR / "cube_matlab.png",
+    render_srgb_cube_isometric(mat_rgb, save_path=OUT_DIR / "cube_matlab.png",
                               title="MATLAB, neural-bounded CIELAB")
 
     passed = (rgb_diff.max() == 0) or (np.percentile(rgb_diff, 95) < 3.0)

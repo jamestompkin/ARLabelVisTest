@@ -11,7 +11,7 @@ import numpy as np
 
 from arlabelvis.viz import (
     load_lut,
-    render_rgb_cube_isometric,
+    render_srgb_cube_isometric,
     render_color_space_pointcloud,
     render_hue_histogram,
 )
@@ -54,9 +54,9 @@ def main():
     print(f"  LUT shape: {lut.shape}, dtype: {lut.dtype}")
     print(f"  sample: lut[128,128,128] -> {lut[128, 128, 128].tolist()} (expect near complement of 128 = 127)")
 
-    print("rendering RGB cube...")
-    render_rgb_cube_isometric(lut, save_path=OUT / "cube.png",
-                              title="Synthetic LUT — RGB cube isometric",
+    print("rendering sRGB cube...")
+    render_srgb_cube_isometric(lut, save_path=OUT / "cube.png",
+                              title="Synthetic LUT — sRGB cube isometric",
                               stride=4)
 
     print("rendering CIELAB point cloud...")

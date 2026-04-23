@@ -2,8 +2,8 @@
 
 Generates a CIELAB farthest-color LUT via the pure-Python Euclidean-over-hull
 branch (no MATLAB, no neural bounding), writes it in the paired-text-file
-format, loads it through `viz.load_lut`, and renders a 3D RGB cube with
-`viz.render_rgb_cube_isometric`. Intended to be runnable from a fresh clone
+format, loads it through `viz.load_lut`, and renders a 3D sRGB cube with
+`viz.render_srgb_cube_isometric`. Intended to be runnable from a fresh clone
 in under a minute.
 
 Output PNG lands at `results/e2e_demo/lut_cube_cielab_euclidean.png`.
@@ -15,7 +15,7 @@ import numpy as np
 
 from arlabelvis.meshing import generate_LABs
 from arlabelvis.distances import furthest_euclidean_lab_points
-from arlabelvis.viz import load_lut, render_rgb_cube_isometric
+from arlabelvis.viz import load_lut, render_srgb_cube_isometric
 
 
 OUT_DIR = Path("results/e2e_demo")
@@ -63,8 +63,8 @@ def main():
         lut = load_lut(lab_path, rgb_path, value="rgb")
 
     out_png = OUT_DIR / "lut_cube_cielab_euclidean.png"
-    with stage("render_rgb_cube_isometric (PyVista, 3 cell-grid faces)"):
-        render_rgb_cube_isometric(
+    with stage("render_srgb_cube_isometric (PyVista, 3 cell-grid faces)"):
+        render_srgb_cube_isometric(
             lut, save_path=out_png,
             title="CIELAB Euclidean farthest-color LUT (interval=8)",
         )

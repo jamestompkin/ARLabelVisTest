@@ -1,6 +1,6 @@
 import numpy as np 
 from arlabelvis.binvox_rw import write, Voxels
-from arlabelvis.colors import RGBtoLAB
+from arlabelvis.colors import sRGBtoLAB
 
 # def convertToVoxels(allPoints, dim):
 #     # print("expected size: " + str(len(allLABs)))
@@ -98,7 +98,7 @@ def writeVoxels(allPoints, dim, filename):
                                for b in range(0, 257, stepSize)])
     allRGB = np.where(allRGB < 0, 0, allRGB)
     allRGB = np.where(allRGB > 255, 255, allRGB)
-    allLABs = RGBtoLAB(allRGB)
+    allLABs = sRGBtoLAB(allRGB)
 
     dim = 32
     voxels = convertToVoxels(allLABs, dim)

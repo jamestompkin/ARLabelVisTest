@@ -90,17 +90,24 @@ CSV_HEADER = [
 
 
 def _load_mask(path: str | Path, shape: tuple[int, int]) -> np.ndarray:
-    """Load a mask as (H,W) bool. Accepts grayscale PNG or alpha-channel PNG."""
-    img = iio.imread(path)
+    """Load a mask as (H,W) bool. Accepts grayscale / RGB / RGBA PNG.
+
+    Priority for selecting the mask channel:
+      - RGBA with a non-trivial alpha channel (multiple values): use alpha.
+      - Any other multi-channel image: use the mean of the RGB channels.
+      - Grayscale: use as-is.
+
+    This handles both "alpha-encoded" masks (transparent = foreground) and
+    the common case of an opaque PNG where the mask is drawn in RGB.
+    """
+    img = np.asarray(iio.imread(path))
     if img.ndim == 3:
-        # Prefer alpha channel if present; else luma
-        if img.shape[-1] == 4:
+        if img.shape[-1] == 4 and len(np.unique(img[..., 3])) > 1:
             m = img[..., 3]
         else:
             m = img[..., :3].mean(axis=-1)
     else:
         m = img
-    m = np.asarray(m)
     if m.shape != shape:
         raise ValueError(f"mask shape {m.shape} != frame shape {shape}")
     return m > 127
@@ -124,9 +131,14 @@ def iter_frames(video_path: str | Path) -> tuple[object, float]:
                 yield i, img.astype(np.uint8)
         return gen(), 30.0  # assume 30 fps for frame dirs
     else:
-        # imageio-ffmpeg backend (installed via pyproject). Assume 30fps by default;
-        # fps metadata is unreliable across backends.
-        fps = 30.0
+        # imageio-ffmpeg backend (installed via pyproject). Read fps from
+        # container metadata; fall back to 30 if unreadable.
+        try:
+            meta = iio.immeta(path, plugin="FFMPEG")
+            fps = float(meta.get("fps", 30.0))
+        except Exception:
+            fps = 30.0
+
         def gen():
             for i, frame in enumerate(iio.imiter(path, plugin="FFMPEG")):
                 if frame.ndim == 2:

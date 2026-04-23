@@ -1,0 +1,15 @@
+\begin{table}[H]
+\small
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+\textbf{Metric} & \textbf{Grad Max} & \textbf{Grad Avg} & \textbf{Sat Avg} & \textbf{Int Avg} & \textbf{\#Colors} & \textbf{Eff. Palette} & \textbf{Hue H (bits)} & \textbf{Mean NN $\Delta E$}\\
+\midrule
+$\Delta E_{76}$ (= Euclidean) & 101.19 & 3.430 & 0.932 & 0.894 & 66378 & 3.9 & 3.17 & 1.12\\
+$\Delta E_{94}$ & 106.25 & 3.111 & 0.877 & 0.589 & 56590 & 10.6 & 4.29 & 0.91\\
+$\Delta E_{00}$ & 102.18 & 4.129 & 0.668 & 0.496 & 176981 & 16.3 & 5.37 & 1.35\\
+RGD & 97.77 & 4.016 & 0.842 & 0.813 & 75308 & 5.9 & 3.84 & 1.04\\
+\bottomrule
+\end{tabular}
+\caption{Distance-metric comparison. All rows use CIELAB as the intermediate color space and CIELAB-space output interpolation. $\Delta E_{76}$ equals Euclidean distance in CIELAB by definition (hence the redundant label). RGD = regularised geodesic distances on the unsmoothed convex-hull gamut mesh ($\hat\alpha=0.25$).}
+\label{tab:distance_metric}
+\end{table}

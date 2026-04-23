@@ -72,11 +72,11 @@ class RunConfig:
     def get_points(self):
         """Generate the input (allRGBs, allPoints-in-space) pair for this config."""
         from arlabelvis.meshing import generate_LABs
-        from arlabelvis.colors import RGBtoOKLAB
+        from arlabelvis.colors import sRGBtoOKLAB
         allRGBs, allLABs = generate_LABs(stepSize=self.interval)
         if self.space == "OKLAB":
-            points = RGBtoOKLAB(allRGBs)
-        elif self.space == "RGB":
+            points = sRGBtoOKLAB(allRGBs)
+        elif self.space == "sRGB":
             points = allRGBs
         else:
             points = allLABs

@@ -29,6 +29,7 @@ dependencies = [
     "threadpoolctl>=3.6.0",
     "pypardiso>=0.4.7",
     "cholespy>=2.2.0",
+    "pillow>=12.2.0",
 ]
 
 [tool.uv]

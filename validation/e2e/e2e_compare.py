@@ -13,7 +13,7 @@ Both backends take the same `e2e_cielab_hull.off` mesh as input. This script:
        - per-voxel RGB absolute difference: max, 95th percentile, mean
        - gradient-metric parity (max, avg, std) from arlabelvis.metrics.get_gradient
        - hue-histogram diff
-  5. Renders each cube via arlabelvis.viz.render_rgb_cube_isometric.
+  5. Renders each cube via arlabelvis.viz.render_srgb_cube_isometric.
 
 Pass criterion: 95th-percentile per-voxel RGB diff < 3/255  (visually imperceptible).
 """
@@ -31,7 +31,7 @@ from arlabelvis.off import read_off
 from arlabelvis.distances import furthest_rgd
 from arlabelvis.interpolate import interpolate_interval
 from arlabelvis.rgd.allpairs import compute_all_pairs_argmax
-from arlabelvis.viz import load_lut, render_rgb_cube_isometric
+from arlabelvis.viz import load_lut, render_srgb_cube_isometric
 
 INTERVAL = 16
 ALPHA_HAT = 0.25
@@ -131,9 +131,9 @@ def main():
 
     # Render both cubes side-by-side
     print("\nRendering cubes...")
-    render_rgb_cube_isometric(d['py_rgb'], save_path=OUT_DIR / "cube_python.png",
+    render_srgb_cube_isometric(d['py_rgb'], save_path=OUT_DIR / "cube_python.png",
                               title="Python backend LUT")
-    render_rgb_cube_isometric(d['mat_rgb'], save_path=OUT_DIR / "cube_matlab.png",
+    render_srgb_cube_isometric(d['mat_rgb'], save_path=OUT_DIR / "cube_matlab.png",
                               title="MATLAB backend LUT")
 
     passed = d['rgb_p95'] < 3.0 and dmax < 1e-2 and davg < 1e-2

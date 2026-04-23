@@ -5,10 +5,10 @@ Reads the paired text format produced by main.py's INTERPOLATE stage
 dense (256,256,256,3) array of LUT output RGB, and renders three styles
 of figure:
 
-1. `render_rgb_cube_isometric` — 3 visible outer faces of the 256^3 input-RGB
+1. `render_srgb_cube_isometric` — 3 visible outer faces of the 256^3 input-sRGB
    cube, colored by the LUT output. The "cube" visualization in the paper.
 2. `render_color_space_pointcloud` — 3D scatter of the intermediate color-space
-   points (CIELAB / Oklab / RGB) colored by the LUT output. Matches the style
+   points (CIELAB / OKLAB / sRGB) colored by the LUT output. Matches the style
    of Lana's existing figures (cielab_rgd_05.png, oklab_rgd_05.png, etc).
 3. `render_hue_histogram` — 1D hue distribution of the LUT outputs. Matches
    the `..._hue.png` figures in results/histograms/.
@@ -134,7 +134,7 @@ def load_lut(lab_file: str | Path, rgb_file: str | Path | None = None,
 
 
 def _oklab_to_rgb(ok: np.ndarray) -> np.ndarray:
-    """Inverse of utils/color_spaces.RGBtoOKLAB (vectorized, returns [0,1] sRGB)."""
+    """Inverse of arlabelvis.colors.sRGBtoOKLAB (vectorized, returns [0,1] sRGB)."""
     L, a, b = ok[:, 0], ok[:, 1], ok[:, 2]
     l_ = L + 0.3963377774 * a + 0.2158037573 * b
     m_ = L - 0.1055613458 * a - 0.0638541728 * b
@@ -151,7 +151,7 @@ def _oklab_to_rgb(ok: np.ndarray) -> np.ndarray:
 
 # ----------------------------- renders -------------------------------------
 
-def render_rgb_cube_isometric(
+def render_srgb_cube_isometric(
     lut: np.ndarray,
     save_path: str | Path | None = None,
     *,
@@ -159,7 +159,7 @@ def render_rgb_cube_isometric(
     window_size: tuple[int, int] = (1200, 1200),
     show: bool = False,
 ) -> None:
-    """Render three visible outer faces of the 256^3 RGB cube via PyVista/VTK.
+    """Render three visible outer faces of the 256^3 sRGB input cube via PyVista/VTK.
 
     Each face is a 256x256 uniform cell grid with per-cell RGB (no texture,
     no interpolation, no face normals in the color path). Faces are guaranteed
@@ -281,6 +281,8 @@ def render_color_space_pointcloud(
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0.05)
     if show:
         plt.show()
+    else:
+        plt.close(fig)
     return fig
 
 
@@ -322,6 +324,8 @@ def render_hue_histogram(
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0.05)
     if show:
         plt.show()
+    else:
+        plt.close(fig)
     return fig
 
 

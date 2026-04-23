@@ -223,36 +223,4 @@ def bindLABtoSphere(allLABPoints, allRGB):
     print("number points moved:")
     print(inc)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection = '3d')
-    ax.set_xlabel("L")
-    ax.set_ylabel("a")
-    ax.set_zlabel("b")
-
-    #Plot the bounding sphere
-    theta = np.linspace(0, 2 * np.pi, 100)
-    phi = np.linspace(0, np.pi, 50)
-    theta, phi = np.meshgrid(theta, phi)
-    r = bounded_distance
-    x = center[0] + r * np.sin(phi) * np.cos(theta)
-    y = center[1] + r * np.sin(phi) * np.sin(theta)
-    z = center[2] +r * np.cos(phi)
-    ax.plot_surface(x, y, z, color='red', alpha=0.5)
-
-    # Plot the positions of the bounded LAB points in their original RGB color
-    X = allLABPoints[:, 0]
-    Y = allLABPoints[:, 1]
-    Z = allLABPoints[:, 2] 
-    ax.scatter(X, Y, Z, c = allRGB/255.0, alpha=0.15)
-
-    #Plot the possible boundary points
-    # ax.scatter(boundaryLABs[:,0], boundaryLABs[:,1], boundaryLABs[:,2], c='blue')
-
-    ax.set_xlim([-100, 100])   # Set x-axis limits
-    ax.set_ylim([-100, 100])   # Set y-axis limits
-    ax.set_zlim([-100, 100])   # Set z-axis limits
-    ax.set_box_aspect([1.0, 1.0, 1.0])
-
-    plt.show()
-
     return allLABPoints

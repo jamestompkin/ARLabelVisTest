@@ -1,0 +1,16 @@
+{
+  "name": "dubai_raining",
+  "title": "Dubai skyline, rainy",
+  "description": "Equirectangular stereo (top-bottom 3D) 360° video of a Dubai skyline with rain and darker, more stable background colors. Complements dubai_changing_bgcolors as a less adversarial case.",
+  "video": "../../../external/unity/Assets/Dubai_raining.mp4",
+  "label_mask": null,
+  "resolution": [3840, 1920],
+  "stereo_layout": "top_bottom",
+  "fps": 29.97,
+  "duration_s": 15.22,
+  "label_region": {
+    "shape": "rect",
+    "note": "No label mask checked in yet — reuses the dubai_changing_bgcolors mask if its label region is in the same frame coordinates."
+  },
+  "source": "external/unity/Assets/Dubai_raining.mp4"
+}

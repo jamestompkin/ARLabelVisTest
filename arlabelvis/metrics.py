@@ -83,6 +83,99 @@ def get_histogram(lookup_data: np.ndarray, save_path: str, bins: int = 360):
     print(f"Saved: {save_path}")
 
 
+def color_diversity(lookup_data: np.ndarray, *,
+                    hue_bins: int = 360,
+                    nn_sample_size: int = 20_000) -> dict:
+    """Four complementary diversity metrics over the LUT output set.
+
+    Input `lookup_data` is the 256^3 LUT of output *farthest colors* (the
+    sRGB or LAB value assigned to each input sRGB triple). The four metrics
+    answer different questions about how varied those outputs actually are:
+
+    unique_colors
+        Number of distinct output colors in the LUT (after quantising to
+        8-bit sRGB if needed). Raw count. Corner-clumping LUTs land ~6-10;
+        smooth LUTs thousands.
+
+    palette_effective_size
+        Inverse-Simpson / Hill-number-of-order-2 over the output-color
+        frequencies: `(sum n_i)^2 / sum n_i^2`. Weights unique count by how
+        evenly each color is actually used. If one color dominates a
+        nominally-1000-color LUT, this drops toward 1. Reduces to the raw
+        unique count when every output color appears equally. ("Effective
+        palette size" is a working label; statistically this is the Hill-2
+        diversity or the inverse Simpson index — rename as you like.)
+
+    hue_entropy_bits
+        Shannon entropy of the output hue distribution, in bits, computed
+        over `hue_bins` equal-width hue bins. Reduces the hue-histogram
+        figures (4.13/4.14) to a single scalar; max is `log2(hue_bins)`
+        for a perfectly uniform hue spread.
+
+    mean_nn_delta_e
+        Mean of per-color nearest-neighbor distances in CIELAB among
+        *unique* output colors, using an L2-in-LAB approximation of
+        DeltaE76 (fast; DeltaE00 would need a sampled O(n^2) pairwise).
+        Captures perceptual spread: corner-clumped outputs have small
+        mean NN distance; a diverse LUT has large NN distance.
+
+    `nn_sample_size` caps the unique-colors set when computing mean NN for
+    performance; >20k unique colors get randomly sub-sampled before the
+    KDTree query.
+    """
+    pixels = lookup_data.reshape(-1, 3)
+    # Normalize the input representation: if values look like 0..255 floats,
+    # quantize to uint8; if already uint8, leave alone.
+    if pixels.dtype != np.uint8:
+        pixels_u8 = np.clip(pixels, 0, 255).astype(np.uint8) if pixels.max() > 1.5 \
+                    else np.clip(pixels * 255.0, 0, 255).astype(np.uint8)
+    else:
+        pixels_u8 = pixels
+
+    # unique colors + per-color counts in one pass
+    unique, counts = np.unique(pixels_u8, axis=0, return_counts=True)
+    n_unique = int(len(unique))
+    n_total = int(counts.sum())
+
+    # palette_effective_size (inverse Simpson / Hill-2)
+    palette_effective = float((n_total ** 2) / (counts.astype(np.int64) ** 2).sum()) \
+                        if n_total > 0 else 0.0
+
+    # hue entropy: rgb->hsv on UNIQUE outputs, weighted by counts
+    rgb_unique = unique.astype(np.float32) / 255.0
+    hsv_unique = rgb_to_hsv(rgb_unique)
+    hue = hsv_unique[:, 0]  # [0, 1)
+    hist, _ = np.histogram(hue, bins=hue_bins, range=(0.0, 1.0), weights=counts)
+    p = hist / max(hist.sum(), 1)
+    nz = p > 0
+    hue_entropy_bits = float(-(p[nz] * np.log2(p[nz])).sum())
+
+    # mean nearest-neighbor DeltaE76 (L2 in LAB) among unique outputs.
+    from skimage.color import rgb2lab
+    from scipy.spatial import cKDTree
+    if n_unique >= 2:
+        if n_unique > nn_sample_size:
+            rng = np.random.default_rng(0)
+            idx = rng.choice(n_unique, size=nn_sample_size, replace=False)
+            rgb_sample = rgb_unique[idx]
+        else:
+            rgb_sample = rgb_unique
+        lab_sample = rgb2lab(rgb_sample)
+        tree = cKDTree(lab_sample)
+        # k=2 because k=1 returns self (distance 0); take the second.
+        dists, _ = tree.query(lab_sample, k=2)
+        mean_nn_delta_e = float(dists[:, 1].mean())
+    else:
+        mean_nn_delta_e = 0.0
+
+    return {
+        "unique_colors": n_unique,
+        "palette_effective_size": palette_effective,
+        "hue_entropy_bits": hue_entropy_bits,
+        "mean_nn_delta_e": mean_nn_delta_e,
+    }
+
+
 def get_richness(lookup_data: np.ndarray, sample_size: int = 50_000):
     pixels = lookup_data.reshape(-1, 3).astype(np.float32)
     if pixels.max() > 1.0:
