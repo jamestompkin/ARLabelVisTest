@@ -1,17 +1,18 @@
 {
   "name": "dubai_changing_bgcolors",
   "title": "Dubai skyline, changing background colors",
-  "description": "Equirectangular stereo (top-bottom 3D) 360° video of a Dubai skyline at sunset where the background sky is animated through a wide hue/chroma range. Worst-case for static-label methods that pick a single farthest color — the background sweeps past every CEC.",
-  "video": "../../../external/unity/Assets/Dubai_Changing_BGColors.mp4",
+  "description": "Mono 360° equirectangular panorama of a Dubai skyline at sunset; the background sky is animated through a wide hue/chroma range. Worst-case for static-label methods that pick a single farthest color — the CEC sweeps.",
+  "video": "video.mp4",
   "label_mask": "label_mask.png",
   "resolution": [3840, 1920],
-  "stereo_layout": "top_bottom",
+  "projection": "equirectangular_360",
   "fps": 29.97,
   "duration_s": 15.22,
   "label_region": {
     "shape": "rect",
-    "note": "Single rectangular 'entering' label in the lower-left quadrant of the frame. Mask is a binary PNG; foreground pixels (value > 127) are the label area."
+    "note": "Rectangular 'entering' label in the lower-left region of the equirectangular frame. Binary PNG; foreground pixels (>127) are the label area. The Unity AR scene renders this panorama as stereo at runtime; the label is drawn once on the panorama and the runtime stereo view then shows it in both eyes."
   },
   "source": "external/unity/Assets/Dubai_Changing_BGColors.mp4",
-  "mask_source": "user-provided (entering mask 3D.png, Apr 23 2026)"
+  "source_original": "data/scenes/dubai_marina_timelapse/ (YouTube fTfJwzRsE-w); this video is a 15s nighttime snippet of that source with an animated background hue cycle added.",
+  "mask_source": "user-provided entering mask 3D.png (Apr 23 2026)"
 }

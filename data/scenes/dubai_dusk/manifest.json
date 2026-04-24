@@ -1,0 +1,28 @@
+{
+  "name": "dubai_dusk",
+  "title": "Dubai skyline, dusk -> night",
+  "description": "15.22s dusk-to-night slice of the Dubai Marina timelapse (original YouTube source, not the compressed augmented clip). CEC changes naturally as the sky transitions — useful as a non-adversarial stress test for LUT stability.",
+  "video": "video.mp4",
+  "label_mask": "../dubai_changing_bgcolors/label_mask.png",
+  "resolution": [
+    3840,
+    2160
+  ],
+  "projection": "equirectangular_360",
+  "fps": 29.97,
+  "duration_s": 15.215,
+  "label_region": {
+    "shape": "rect",
+    "note": "Shares dubai_changing_bgcolors/label_mask.png (3840x1920). arlabelvis.scene.process_scene_video center-pads the mask with 120 zero-rows top+bottom to match this 3840x2160 source; the resulting label bbox is at y in [1033, 1307] of the frame."
+  },
+  "source": "data/scenes/dubai_marina_timelapse/video.mp4",
+  "source_slice": {
+    "start_frame_in_original": 4064,
+    "start_time_s_in_original": 135.602,
+    "duration_s": 15.215,
+    "derived_from_augmented": "dubai_changing_bgcolors"
+  },
+  "notes": [
+    "Extracted via ffmpeg CRF=15 libx264 from the original; no re-compression artefacts beyond that single encoding pass."
+  ]
+}

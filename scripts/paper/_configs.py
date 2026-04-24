@@ -52,6 +52,8 @@ LUT_CIELAB_NEURAL_RGD_005 = CIELAB(smoothing="neural",      metric="RGD", alpha_
 # α̂=0.5 neural variant used by the short paper's "ours" hue histogram
 # (filename suffix 50 in thesis legacy naming).
 LUT_CIELAB_NEURAL_RGD_050 = CIELAB(smoothing="neural",      metric="RGD", alpha_hat=0.5)
+# α̂=1.25 is the short paper's hero method (see §Method and tab:scene).
+LUT_CIELAB_NEURAL_RGD_125 = CIELAB(smoothing="neural",      metric="RGD", alpha_hat=1.25)
 
 # alpha_hat sweep on the neural-bounded mesh (thesis uses 0.05..1.5)
 LUT_ALPHA_SWEEP = [
@@ -192,5 +194,23 @@ SHORTPAPER_FIGURES = {
         module=f"{_SP}.shortpaper_alpha_plots",
         outputs=_sp_out("alpha_plots/alpha_plots.png"),
         luts=LUT_ALPHA_SWEEP,
+    ),
+}
+
+
+def _sp_tab_out(*names):
+    return [f"shortpaper_tab:{n}" for n in names]
+
+
+SHORTPAPER_TABLES = {
+    "shortpaper_tab_scene": dict(
+        module=f"{_SP}.shortpaper_tab_scene",
+        outputs=_sp_tab_out("scene/scene.tex"),
+        luts=[LUT_CIELAB_DELTAE00, LUT_CIELAB_NEURAL_RGD_125],
+    ),
+    "shortpaper_tab_timing": dict(
+        module=f"{_SP}.shortpaper_tab_timing",
+        outputs=_sp_tab_out("timing/timing.tex"),
+        luts=[LUT_CIELAB_DELTAE00, LUT_CIELAB_NEURAL_RGD_125],
     ),
 }

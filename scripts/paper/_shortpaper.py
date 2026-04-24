@@ -12,19 +12,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.paper._shared import SHORTPAPER_FIG_DIR
+from scripts.paper._shared import SHORTPAPER_FIG_DIR, SHORTPAPER_TAB_DIR
 
 
 def shortpaper_path(subdir: str, name: str) -> Path:
-    """Resolve a short-paper figure filename to its absolute Overleaf path,
-    creating the parent directory if needed.
-
-    ``subdir`` is the short-paper figure label (without the ``fig:`` prefix):
-    e.g. ``teaser``, ``space_comparison``, ``smoothing``, ``hue_histograms``,
-    ``alpha_plots``. Keeps the Overleaf ``figures/`` tree organised one
-    directory per figure so files match their LaTeX figure labels.
-    ``name`` should include the extension (e.g. ``old_lookup.png``).
-    """
+    """Figure output path. ``subdir`` is the short-paper figure label
+    (without the ``fig:`` prefix) e.g. ``teaser``, ``space_comparison``,
+    ``smoothing``, ``hue_histograms``, ``alpha_plots``. Keeps the Overleaf
+    ``figures/`` tree organised one directory per figure so files match
+    their LaTeX labels. ``name`` should include the extension."""
     target = SHORTPAPER_FIG_DIR / subdir
+    target.mkdir(parents=True, exist_ok=True)
+    return target / name
+
+
+def shortpaper_table_path(subdir: str, name: str) -> Path:
+    """Table output path. Same pattern as ``shortpaper_path`` but under
+    ``tables/`` rather than ``figures/``. Use for ``.tex`` fragments that
+    the short paper \\input{}s."""
+    target = SHORTPAPER_TAB_DIR / subdir
     target.mkdir(parents=True, exist_ok=True)
     return target / name

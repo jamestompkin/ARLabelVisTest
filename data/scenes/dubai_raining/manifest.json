@@ -1,16 +1,17 @@
 {
   "name": "dubai_raining",
   "title": "Dubai skyline, rainy",
-  "description": "Equirectangular stereo (top-bottom 3D) 360° video of a Dubai skyline with rain and darker, more stable background colors. Complements dubai_changing_bgcolors as a less adversarial case.",
-  "video": "../../../external/unity/Assets/Dubai_raining.mp4",
-  "label_mask": null,
+  "description": "Mono 360° equirectangular panorama of a Dubai skyline with rain and darker, more stable background colors. Complements dubai_changing_bgcolors as a less adversarial case.",
+  "video": "video.mp4",
+  "label_mask": "../dubai_changing_bgcolors/label_mask.png",
   "resolution": [3840, 1920],
-  "stereo_layout": "top_bottom",
+  "projection": "equirectangular_360",
   "fps": 29.97,
   "duration_s": 15.22,
   "label_region": {
     "shape": "rect",
-    "note": "No label mask checked in yet — reuses the dubai_changing_bgcolors mask if its label region is in the same frame coordinates."
+    "note": "Shares dubai_changing_bgcolors/label_mask.png: all Dubai scenes use the same label geometry."
   },
-  "source": "external/unity/Assets/Dubai_raining.mp4"
+  "source": "external/unity/Assets/Dubai_raining.mp4",
+  "source_original": "data/scenes/dubai_marina_timelapse/ (YouTube fTfJwzRsE-w); this video is a 15s nighttime snippet of that source with a rain overlay added."
 }

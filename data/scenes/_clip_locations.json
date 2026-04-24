@@ -1,0 +1,24 @@
+{
+  "original": "data/scenes/dubai_marina_timelapse/video.mp4",
+  "mask": "data/scenes/dubai_changing_bgcolors/label_mask.png",
+  "label_bbox_yxyx": [
+    913,
+    1188,
+    1083,
+    1279
+  ],
+  "results": {
+    "dubai_changing_bgcolors": {
+      "start_frame": 4064,
+      "start_time_s": 135.602,
+      "vertical_offset_px": 120,
+      "label_bbox_mse": 2670.66
+    },
+    "dubai_raining": {
+      "start_frame": 861,
+      "start_time_s": 28.729,
+      "vertical_offset_px": 120,
+      "label_bbox_mse": 2579.36
+    }
+  }
+}

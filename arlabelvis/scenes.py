@@ -48,7 +48,7 @@ def load_scene(name: str, root: Path = SCENES_ROOT) -> Scene:
     manifest_path = scene_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"no manifest at {manifest_path}")
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     video = (scene_dir / manifest["video"]).resolve()
     if not video.exists():
@@ -57,7 +57,7 @@ def load_scene(name: str, root: Path = SCENES_ROOT) -> Scene:
     mask_name = manifest.get("label_mask")
     label_mask: Optional[Path] = None
     if mask_name is not None:
-        label_mask = scene_dir / mask_name
+        label_mask = (scene_dir / mask_name).resolve()
         if not label_mask.exists():
             raise FileNotFoundError(f"mask missing: {label_mask}")
 

@@ -15,16 +15,22 @@ import time
 import traceback
 from pathlib import Path
 
-from scripts.paper._configs import FIGURES, TABLES, SHORTPAPER_FIGURES
-from scripts.paper._shared import SHORTPAPER_FIG_DIR
+from scripts.paper._configs import (FIGURES, TABLES,
+                                    SHORTPAPER_FIGURES, SHORTPAPER_TABLES)
+from scripts.paper._shared import SHORTPAPER_FIG_DIR, SHORTPAPER_TAB_DIR
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _resolve(out: str) -> Path:
     """Resolve an entry's declared output path. Absolute paths and plain
-    relative-to-ROOT paths work as before; the ``shortpaper:<name>`` sentinel
-    resolves against SHORTPAPER_FIG_DIR (which lives outside the repo)."""
+    relative-to-ROOT paths work as before. Sentinels for short-paper
+    outputs that live outside the repo:
+      ``shortpaper:<rel>``     -> SHORTPAPER_FIG_DIR / rel
+      ``shortpaper_tab:<rel>`` -> SHORTPAPER_TAB_DIR / rel
+    """
+    if out.startswith("shortpaper_tab:"):
+        return SHORTPAPER_TAB_DIR / out[len("shortpaper_tab:"):]
     if out.startswith("shortpaper:"):
         return SHORTPAPER_FIG_DIR / out[len("shortpaper:"):]
     return ROOT / out
@@ -63,6 +69,7 @@ def main():
     entries = {}
     if args.shortpaper_only:
         entries.update(SHORTPAPER_FIGURES)
+        entries.update(SHORTPAPER_TABLES)
     else:
         if not args.skip_figures:
             entries.update(FIGURES)
@@ -70,6 +77,7 @@ def main():
             entries.update(TABLES)
         if not args.skip_shortpaper:
             entries.update(SHORTPAPER_FIGURES)
+            entries.update(SHORTPAPER_TABLES)
     if args.only:
         entries = {k: v for k, v in entries.items() if k in args.only}
         missing = [k for k in args.only if k not in entries]

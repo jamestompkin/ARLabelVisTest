@@ -12,17 +12,19 @@ FIG_DIR.mkdir(parents=True, exist_ok=True)
 TAB_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# Short-paper figures land in the Overleaf project's ieeevis2026/figures
-# directory (takes precedence over ../figures/ thanks to the paper's
-# \graphicspath). Overridable via $ARLABELVIS_SHORTPAPER_FIG_DIR. Default
-# is James's checkout path; other contributors can set the env var.
+# Short-paper outputs land under the Overleaf project's ieeevis2026/
+# directory. Figures live in figures/<label>/<name>.png; tables in
+# tables/<label>/<name>.tex. Overridable via $ARLABELVIS_SHORTPAPER_DIR.
+# Default is James's checkout path; other contributors can set the env var.
 _DEFAULT_SHORTPAPER_DIR = (
     "C:/Users/james/Brown Dropbox/James Tompkin/Apps/Overleaf/"
-    "Lana Yang-Maccini Senior Thesis/ieeevis2026/figures"
+    "Lana Yang-Maccini Senior Thesis/ieeevis2026"
 )
-SHORTPAPER_FIG_DIR = Path(
-    os.environ.get("ARLABELVIS_SHORTPAPER_FIG_DIR", _DEFAULT_SHORTPAPER_DIR)
+SHORTPAPER_DIR = Path(
+    os.environ.get("ARLABELVIS_SHORTPAPER_DIR", _DEFAULT_SHORTPAPER_DIR)
 )
+SHORTPAPER_FIG_DIR = SHORTPAPER_DIR / "figures"
+SHORTPAPER_TAB_DIR = SHORTPAPER_DIR / "tables"
 
 
 def _cielab_lut_to_u8(lut_cielab: np.ndarray) -> np.ndarray:

@@ -127,7 +127,7 @@ def main(argv=None):
         _run_with_frame_cap(scene, lut, csv_out, args.max_frames)
     else:
         process_scene_video(str(scene.video), lut, str(scene.label_mask), str(csv_out),
-                            cec_source="background")
+                            cec_source="label")
 
     print(f"=== loading CSV + computing flicker gradients ===")
     df = load_and_filter(csv_out)
@@ -169,7 +169,7 @@ def _run_with_frame_cap(scene, lut, csv_out, max_frames: int):
     scene_mod.iter_frames = capped
     try:
         process_scene_video(str(scene.video), lut, str(scene.label_mask), str(csv_out),
-                            cec_source="background")
+                            cec_source="label")
     finally:
         scene_mod.iter_frames = orig
 

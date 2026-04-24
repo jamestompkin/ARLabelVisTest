@@ -47,3 +47,8 @@ __pycache__/
 /data/luts/
 # Per-panel intermediate renders used when compositing multi-panel figures
 /results/paper/figures/_tmp_*/
+
+# Scene videos — all regenerable (originals in external/unity/Assets/ or via
+# yt-dlp for dubai_marina_timelapse; clean dusk/daytime extracts via
+# scripts/paper/_extract_dubai_clips.py). Keep manifests + masks, skip mp4s.
+/data/scenes/*/video.mp4

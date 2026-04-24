@@ -1,0 +1,21 @@
+{
+  "name": "dubai_marina_timelapse",
+  "title": "Dubai Marina — 8K 360° day-to-night timelapse (original source)",
+  "description": "Full 4:24 day-to-night equirectangular panoramic timelapse of Dubai Marina, downloaded from YouTube. This is the original source Lana augmented to produce dubai_changing_bgcolors (15s nighttime snippet + animated background hue cycle) and dubai_raining (15s nighttime snippet + rain overlay). Kept for provenance and for any reruns that want to test against the un-augmented source.",
+  "video": "video.mp4",
+  "label_mask": "../dubai_changing_bgcolors/label_mask.png",
+  "resolution": [3840, 2160],
+  "projection": "equirectangular_360",
+  "fps": 29.97,
+  "duration_s": 264.34,
+  "label_region": {
+    "shape": "rect",
+    "note": "Shares dubai_changing_bgcolors/label_mask.png. The mask is 3840x1920 but this source is 3840x2160; arlabelvis.scene.process_scene_video center-pads the mask with zeros up to the frame's 3840x2160 shape (120 rows top + 120 rows bottom). This lands the label at y in [1033, 1308] of the 2160-tall frame, matching where the label sits in the augmented (center-cropped-to-1920) versions per the correlation in data/scenes/_clip_locations.json."
+  },
+  "source": "https://www.youtube.com/watch?v=fTfJwzRsE-w",
+  "source_filename": "8K 360 Degree Timelapse of Dubai Marina [fTfJwzRsE-w].mp4",
+  "notes": [
+    "Downloaded via yt-dlp; YouTube video id fTfJwzRsE-w.",
+    "The augmented versions in dubai_changing_bgcolors/ and dubai_raining/ are both ~15s nighttime snippets of this source, vertically cropped 2160->1920."
+  ]
+}
