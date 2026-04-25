@@ -1,17 +1,28 @@
-import numpy as np 
-from arlabelvis.binvox_rw import write, Voxels
-from arlabelvis.colors import sRGBtoLAB
+"""DEPRECATED — sRGB-grid → CIELAB → binvox writer for the external
+neural-bounding trainer pipeline.
 
-# def convertToVoxels(allPoints, dim):
-#     # print("expected size: " + str(len(allLABs)))
-#     x_max, y_max, z_max = np.max(allPoints, axis=0)
-#     x_min, y_min, z_min = np.min(allPoints, axis=0)
+The pipeline is retired: ``shape='neural'`` now uses the in-process MLP
+in ``arlabelvis.neural_bounding``. Nothing in the live pipeline imports
+this module. Known bugs preserved verbatim because no caller exercises
+them: ``write_voxels`` ignores its ``filename`` argument and always
+writes to ``"all_labs.binvox"`` in the current working directory; the
+commented-out block in ``convertToVoxels`` is a duplicate of the
+function below; ``binvox_rw.write`` is broken under Python 3.
+"""
+import numpy as np
+from arlabelvis.binvox_rw import write, Voxels
+from arlabelvis.colors import srgb_to_lab
+
+# def convertToVoxels(all_points, dim):
+#     # print("expected size: " + str(len(all_labs)))
+#     x_max, y_max, z_max = np.max(all_points, axis=0)
+#     x_min, y_min, z_min = np.min(all_points, axis=0)
 
 #     max_range = 1.1 * max([x_max - x_min, y_max - y_min, z_max - z_min])
 
 #     voxels = np.zeros((dim, dim, dim), dtype=bool)
 
-#     for lab in allPoints:
+#     for lab in all_points:
 #         print("LAB")
 #         x = lab[0] - x_min
 #         y = lab[1] - y_min
@@ -32,18 +43,18 @@ from arlabelvis.colors import sRGBtoLAB
 
 #         voxels[x][y][z] = True
 
-#     print(np.min(allPoints, axis=0))
-#     print(np.max(allPoints, axis=0))
+#     print(np.min(all_points, axis=0))
+#     print(np.max(all_points, axis=0))
 #     print(voxels.shape)
 
 #     print("sum of numpy array: " + str(np.sum(voxels)))
 #     # print("done converting to voxels")
 #     return voxels
 
-def convertToVoxels(allLABs, dim):
-    # print("expected size: " + str(len(allLABs)))
-    x_max, y_max, z_max = np.max(allLABs, axis=0)
-    x_min, y_min, z_min = np.min(allLABs, axis=0)
+def convertToVoxels(all_labs, dim):
+    # print("expected size: " + str(len(all_labs)))
+    x_max, y_max, z_max = np.max(all_labs, axis=0)
+    x_min, y_min, z_min = np.min(all_labs, axis=0)
 
 
 
@@ -53,7 +64,7 @@ def convertToVoxels(allLABs, dim):
 
     voxels = np.zeros((dim, dim, dim), dtype=np.bool_)
 
-    for lab in allLABs:
+    for lab in all_labs:
         # print("LAB")
         # print(lab)
         x = lab[0] - x_min
@@ -78,8 +89,8 @@ def convertToVoxels(allLABs, dim):
 
         voxels[x][y][z] = True
 
-    print(np.min(allLABs, axis=0))
-    print(np.max(allLABs, axis=0))
+    print(np.min(all_labs, axis=0))
+    print(np.max(all_labs, axis=0))
     print(voxels.shape)
 
     print("sum of numpy array: " + str(np.sum(voxels)))
@@ -87,23 +98,23 @@ def convertToVoxels(allLABs, dim):
     return voxels
 
 
-def writeVoxels(allPoints, dim, filename):
-    # numpy_voxels = convertToVoxels(allPoints, dim)
+def write_voxels(all_points, dim, filename):
+    # numpy_voxels = convertToVoxels(all_points, dim)
     # voxels = Voxels(numpy_voxels, [dim, dim, dim], [0.0, 0.0, 0.0], 1.0, 'xyz')
     # with open(filename, "w", encoding="latin-1") as fp:
     #     write(voxels, fp)
-    stepSize = 16
-    allRGB = np.array([[r-1, g-1, b-1] for r in range(0, 257, stepSize)
-                               for g in range(0, 257, stepSize)
-                               for b in range(0, 257, stepSize)])
-    allRGB = np.where(allRGB < 0, 0, allRGB)
-    allRGB = np.where(allRGB > 255, 255, allRGB)
-    allLABs = sRGBtoLAB(allRGB)
+    step_size = 16
+    all_rgb = np.array([[r-1, g-1, b-1] for r in range(0, 257, step_size)
+                               for g in range(0, 257, step_size)
+                               for b in range(0, 257, step_size)])
+    all_rgb = np.where(all_rgb < 0, 0, all_rgb)
+    all_rgb = np.where(all_rgb > 255, 255, all_rgb)
+    all_labs = srgb_to_lab(all_rgb)
 
     dim = 32
-    voxels = convertToVoxels(allLABs, dim)
+    voxels = convertToVoxels(all_labs, dim)
     v = Voxels(voxels, [dim, dim, dim], [0.0, 0.0, 0.0], 1.0, 'xyz')
-    filepath = "allLABs.binvox"
+    filepath = "all_labs.binvox"
     with open(filepath, 'w', encoding="latin-1") as fp:
         write(v, fp)
     print("Saved to file " + filepath)

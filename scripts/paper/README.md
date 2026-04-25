@@ -15,16 +15,16 @@ directory:
 
 - `_lut_cache.py` — content-addressable LUT cache keyed by `LutConfig`
   (`space × smoothing × sigma × metric × alpha_hat × interval × voxel_dim ×
-  interp_space`). Missing entries are built from scratch by running the
-  right pipeline stages: `generate_LABs → mesh → farthest-color → interpolate`.
+  output_space`). Missing entries are built from scratch by running the
+  right pipeline stages: `generate_labs → mesh → farthest-color → interpolate`.
   Cached as `.npy` under `data/luts/cache/`.
 - `_configs.py` — registries. Every figure/table declares the `LutConfig`s it
   needs; identical configs from different scripts hit the same cache entry.
 - `_shared.py` — `FIG_DIR`, `TAB_DIR`, `SHORTPAPER_FIG_DIR`, `SHORTPAPER_TAB_DIR`,
-  and `lut_to_srgb_u8(lut, cfg)` which dispatches on `cfg.interp_space`
+  and `lut_to_srgb_u8(lut, cfg)` which dispatches on `cfg.output_space`
   (sRGB-valued vs CIELAB-valued LUTs).
-- `_shortpaper.py` — `shortpaper_path(subdir, name)` and
-  `shortpaper_table_path(subdir, name)` helpers. Every short-paper output
+- `_shortpaper.py` — `fig_path(subdir, name)` and
+  `tab_path(subdir, name)` helpers. Every short-paper output
   lives in its own per-figure/per-table subdirectory so the Overleaf layout
   matches the LaTeX figure/table labels.
 - `fig_*.py`, `tab_*.py` — one per thesis-style figure/table.
@@ -106,7 +106,7 @@ Short paper (IEEE VIS 2026) outputs:
 ### Smoothing-path notes
 
 - **sphere**: constructs a 2562-vertex icosphere whose radius matches the
-  bounding sphere returned by `bindLABtoSphere`. Using a direct icosphere
+  bounding sphere returned by `bind_lab_to_sphere`. Using a direct icosphere
   rather than the hull of sphere-mapped grid points keeps the mesh uniform
   and tractable for RGD at any `interval`.
 - **gaussian**: always builds the voxel mesh from the full 256³ sRGB cube
@@ -147,7 +147,7 @@ Short paper:
    paths prefixed `shortpaper:<rel>` (figures) or `shortpaper_tab:<rel>`
    (tables) where `<rel>` is `<subdir>/<file>`.
 3. Drop a `shortpaper_*.py` script that writes via
-   `shortpaper_path("<subdir>", "<file>.png")` or
-   `shortpaper_table_path("<subdir>", "<file>.tex")`.
+   `fig_path("<subdir>", "<file>.png")` or
+   `tab_path("<subdir>", "<file>.tex")`.
 
 `reproduce_all.py` picks up new registry entries automatically.

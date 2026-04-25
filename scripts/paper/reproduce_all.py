@@ -1,46 +1,52 @@
 """Run every registered figure/table script.
 
 Usage:
-  uv run python -m scripts.paper.reproduce_all                # run all
-  uv run python -m scripts.paper.reproduce_all --force        # don't skip existing
-  uv run python -m scripts.paper.reproduce_all --only fig_hue_histograms tab_geometry_smoothing
-  uv run python -m scripts.paper.reproduce_all --shortpaper-only
-  uv run python -m scripts.paper.reproduce_all --skip-shortpaper
+  uv run python -m scripts.paper.reproduce_all             # run all
+  uv run python -m scripts.paper.reproduce_all --force     # don't skip existing
+  uv run python -m scripts.paper.reproduce_all --only fig_teaser tab_timing
+
+Tables run before figures because ``tab_timing`` invalidates + rebuilds
+the slowest LUTs (ΔE₀₀ at interval=1 is ~76 min) from scratch, and every
+downstream figure/table hits the cache.
 """
 from __future__ import annotations
 
 import argparse
 import importlib
+import logging
 import time
 import traceback
 from pathlib import Path
 
-from scripts.paper._configs import (FIGURES, TABLES,
-                                    SHORTPAPER_FIGURES, SHORTPAPER_TABLES)
-from scripts.paper._shared import SHORTPAPER_FIG_DIR, SHORTPAPER_TAB_DIR
+from scripts.paper._configs import FIGURES, TABLES
+from scripts.paper._paths import SHORTPAPER_FIG_DIR, SHORTPAPER_TAB_DIR
 
-ROOT = Path(__file__).resolve().parents[2]
+
+# Known output-kind mapping. Extend this dict when new kinds show up;
+# unknown extensions raise rather than silently routing to the figures dir.
+_OUTPUT_ROOTS = {
+    ".png": SHORTPAPER_FIG_DIR,
+    ".pdf": SHORTPAPER_FIG_DIR,
+    ".tex": SHORTPAPER_TAB_DIR,
+}
 
 
 def _resolve(out: str) -> Path:
-    """Resolve an entry's declared output path. Absolute paths and plain
-    relative-to-ROOT paths work as before. Sentinels for short-paper
-    outputs that live outside the repo:
-      ``shortpaper:<rel>``     -> SHORTPAPER_FIG_DIR / rel
-      ``shortpaper_tab:<rel>`` -> SHORTPAPER_TAB_DIR / rel
-    """
-    if out.startswith("shortpaper_tab:"):
-        return SHORTPAPER_TAB_DIR / out[len("shortpaper_tab:"):]
-    if out.startswith("shortpaper:"):
-        return SHORTPAPER_FIG_DIR / out[len("shortpaper:"):]
-    return ROOT / out
+    """Route an output path to ``figures/`` or ``tables/`` by extension."""
+    root = _OUTPUT_ROOTS.get(Path(out).suffix)
+    if root is None:
+        raise ValueError(
+            f"unknown output extension in {out!r}; extend _OUTPUT_ROOTS "
+            f"in reproduce_all.py to add a new figure or table kind."
+        )
+    return root / out
 
 
-def _outputs_exist(entry) -> bool:
+def _outputs_exist(entry: dict) -> bool:
     return all(_resolve(o).exists() for o in entry["outputs"])
 
 
-def _run_one(fig_id: str, entry: dict, force: bool) -> tuple[bool, float, str]:
+def _run_one(entry: dict, force: bool) -> tuple[bool, float, str]:
     if not force and _outputs_exist(entry):
         return True, 0.0, "skipped (outputs exist)"
     t0 = time.perf_counter()
@@ -51,48 +57,42 @@ def _run_one(fig_id: str, entry: dict, force: bool) -> tuple[bool, float, str]:
         return True, dt, f"ok in {dt:.1f}s"
     except Exception as e:
         dt = time.perf_counter() - t0
-        return False, dt, f"FAILED after {dt:.1f}s: {type(e).__name__}: {e}\n" + traceback.format_exc()
+        return False, dt, (f"FAILED after {dt:.1f}s: {type(e).__name__}: {e}\n"
+                           + traceback.format_exc())
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--force", action="store_true", help="re-run scripts whose outputs already exist")
-    p.add_argument("--only", nargs="+", default=None, help="run only these IDs")
-    p.add_argument("--skip-tables", action="store_true")
-    p.add_argument("--skip-figures", action="store_true")
-    p.add_argument("--skip-shortpaper", action="store_true",
-                   help="skip short-paper (ieeevis2026) outputs")
-    p.add_argument("--shortpaper-only", action="store_true",
-                   help="run only short-paper (ieeevis2026) outputs")
+    # Library code logs at INFO through arlabelvis.luts; route it to stdout with
+    # no prefix so output matches the old print-based behaviour.
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--force", action="store_true",
+                   help="re-run scripts whose outputs already exist")
+    p.add_argument("--only", nargs="+", default=None,
+                   help="run only these IDs")
     args = p.parse_args()
 
-    entries = {}
-    if args.shortpaper_only:
-        entries.update(SHORTPAPER_FIGURES)
-        entries.update(SHORTPAPER_TABLES)
-    else:
-        if not args.skip_figures:
-            entries.update(FIGURES)
-        if not args.skip_tables:
-            entries.update(TABLES)
-        if not args.skip_shortpaper:
-            entries.update(SHORTPAPER_FIGURES)
-            entries.update(SHORTPAPER_TABLES)
+    entries: dict[str, dict] = {}
+    entries.update(TABLES)     # tables first (cache-warming order)
+    entries.update(FIGURES)
     if args.only:
-        entries = {k: v for k, v in entries.items() if k in args.only}
         missing = [k for k in args.only if k not in entries]
         if missing:
             raise SystemExit(f"unknown IDs: {missing}")
+        entries = {k: v for k, v in entries.items() if k in args.only}
 
     results = []
     for fig_id, entry in entries.items():
         print(f"\n===== {fig_id} =====")
-        ok, dt, msg = _run_one(fig_id, entry, args.force)
+        ok, dt, msg = _run_one(entry, args.force)
         print(msg if ok else msg[:2000])
         results.append((fig_id, ok, dt, msg))
 
     print("\n===== SUMMARY =====")
-    for fig_id, ok, dt, msg in results:
+    for fig_id, ok, dt, _msg in results:
         mark = "ok " if ok else "FAIL"
         print(f"  [{mark}] {dt:6.1f}s   {fig_id}")
     n_fail = sum(1 for _, ok, *_ in results if not ok)

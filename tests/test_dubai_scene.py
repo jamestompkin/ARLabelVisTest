@@ -1,8 +1,8 @@
 """Reproduce the flicker-analysis pipeline end-to-end on the dubai_changing_bgcolors scene.
 
 What this exercises:
-  - `arlabelvis.scenes.load_scene` resolves the manifest + files correctly.
-  - `arlabelvis.scene.process_scene_video` decodes the real 3840×1920 equirectangular
+  - `arlabelvis.scene_catalog.load_scene` resolves the manifest + files correctly.
+  - `arlabelvis.scene_video.process_scene_video` decodes the real 3840×1920 equirectangular
     stereo video, masks the label region, computes CEC + LUT lookup per frame, and
     writes a CSV.
   - `arlabelvis.metrics.{load_and_filter, compute_gradients, print_stats}` can
@@ -31,8 +31,8 @@ from pathlib import Path
 
 import numpy as np
 
-from arlabelvis.scenes import load_scene
-from arlabelvis.scene import process_scene_video
+from arlabelvis.scene_catalog import load_scene
+from arlabelvis.scene_video import process_scene_video
 from arlabelvis.metrics import load_and_filter, compute_gradients, print_stats
 
 
@@ -73,8 +73,8 @@ def _synth_lut():
 def _resolve_lut(nick: str):
     """Return (lut_u8, label). Prefers cached paper LUTs; falls back in order."""
     try:
-        from scripts.paper._lut_cache import get_lut
-        from scripts.paper._shared import lut_to_srgb_u8
+        from arlabelvis.luts import get_lut
+        from arlabelvis.luts import lut_to_srgb_u8
     except ImportError as e:
         print(f"[lut] paper cache unavailable ({e}); using synthetic")
         return _synth_lut()
@@ -87,11 +87,11 @@ def _resolve_lut(nick: str):
             continue
         tried.append(name)
         cfg = cfgs[name]
-        lut_path = cfg.lut_path()
-        if not lut_path.exists():
-            print(f"[lut] {name}: not cached at {lut_path.name}")
+        from arlabelvis.luts import DEFAULT_CACHE
+        if not DEFAULT_CACHE.has(cfg):
+            print(f"[lut] {name}: not cached at {DEFAULT_CACHE.path_for(cfg).name}")
             continue
-        return lut_to_srgb_u8(get_lut(cfg), cfg), name
+        return lut_to_srgb_u8(get_lut(cfg), cfg.output_space), name
 
     return _synth_lut()
 
@@ -152,7 +152,7 @@ def main(argv=None):
 def _run_with_frame_cap(scene, lut, csv_out, max_frames: int):
     """Monkey-patch iter_frames so process_scene_video early-terminates at
     max_frames. Keeps the main pipeline untouched for production use."""
-    from arlabelvis import scene as scene_mod
+    from arlabelvis import scene_video as scene_mod
 
     orig = scene_mod.iter_frames
 

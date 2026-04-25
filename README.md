@@ -6,34 +6,29 @@ Codebase for the Yang-Maccini senior thesis and the derived IEEE VIS 2026 short 
 
 ```
 arlabelvis/        # library — methods. Importable, no side effects on import.
-  rgd/             #   regularized geodesic distances (Python port of Edelstein 2023, replaces MATLAB)
-  colors.py        #   RGB <-> LAB/OKLAB conversions
-  distances.py     #   furthest-color search + geodesic-field rendering
-  bounding.py      #   sphere / neural / optimized-mesh bounding methods
-  meshing.py       #   point-cloud -> triangle-mesh + pytorch mesh optimizer
-  voxels.py        #   point-cloud -> binvox
-  binvox_rw.py     #   bundled binvox I/O
+  rgd/             #   regularized geodesic distances (Python port of Edelstein 2023)
+  colors.py        #   sRGB <-> CIELAB / OKLAB conversions + ``convert_color`` pivot
+  distances.py     #   pairwise color metrics (Euclidean, ΔE76, ΔE94, ΔE00)
+  gamut.py         #   ``bind_lab_to_sphere`` for the sphere candidate path
+  meshing.py       #   ``generate_input_grid`` + Gaussian-smoothed boundary mesh
+  neural_bounding.py # in-process ReLU MLP gamut bounder + exact polytope mesh
   off.py           #   OFF file read/write
-  interpolate.py   #   sparse LUT -> dense 256^3
+  interpolate.py   #   sparse LUT -> dense 256^3 (regular sRGB grid path)
+  luts.py          #   ``LutConfig``, ``LutCache``, ``build_lut`` / ``get_lut``
   metrics.py       #   numerical metrics + hue/gradient plots
-  scene.py         #   27-bin tertile CEC + LUT-lookup per video frame
+  cec.py           #   27-bin tertile CEC for video frames
+  scene_catalog.py #   manifest-driven scene loader
+  scene_video.py   #   per-frame CEC + LUT-lookup pipeline
   viz.py           #   lookup-table renderers (cube, point cloud, hue histogram)
+  voxels.py        #   DEPRECATED — sRGB-grid -> binvox (retired binvox path)
+  binvox_rw.py     #   DEPRECATED — bundled binvox I/O (retired binvox path)
 
-scripts/           # entry points — each generates an artifact, edit CONFIG at the top
-  build_mesh.py            # build boundary mesh of the input color space
-  smooth_mesh.py           # apply sphere/neural/pytorch smoothing, write OFF
-  to_voxels.py             # write binvox for neural_bounding trainer
-  run_rgd.py               # consume MATLAB indices -> furthest RGB
-  write_lut_files.py       # write sparse candidate LAB + RGB
-  interpolate_lut.py       # sparse -> dense LUT text files
-  full_pipeline.py         # MATLAB indices -> furthest -> interpolated LUT
-  test_matlab.py           # visualize MATLAB geodesic field on the source mesh
-  show_furthest_mesh.py    # mesh colored by furthest output RGB
-  metrics_report.py        # LUT metrics + alpha-sweep plot
-  process_scene_video.py   # Unity replacement: video + masks -> label-color CSV
-  render_lut_cube.py       # paper-ready isometric cube from a LUT
-  render_hue_histogram.py  # hue distribution of a LUT
-  _config.py               # shared RunConfig dataclass + filename conventions
+scripts/
+  paper/                   # paper pipeline — content-addressable LUT cache +
+                           #   figure/table scripts. See scripts/paper/README.md.
+                           #   Entry point: scripts.paper.reproduce_all.
+  e2e_demo.py              # minute-long sanity check (get_lut -> cube render)
+  to_voxels.py             # DEPRECATED — fed the retired binvox-trained bounder
 
 tests/             # smoke tests; run `uv run python -m tests.<name>`
 validation/        # MATLAB <-> Python RGD correctness (icosphere ground truth)
@@ -60,45 +55,49 @@ uv pip install --index-url https://download.pytorch.org/whl/cu121 torch
 
 MATLAB is **not required**. The Python port of Edelstein 2023 RGD in [arlabelvis/rgd/](arlabelvis/rgd/) is byte-compatible with the original MATLAB and replaces it on the critical path. `external/matlab_rgd/` is retained only as an independent reference implementation for A/B comparison. Install MATLAB only if you want to re-run that comparison.
 
-Neural bounding submodule has its own environment (do not merge with the main env):
-
-```bash
-git submodule update --init
-cd external/neural_bounding
-conda env create -f environment.yml
-conda activate neural_bounding
-./run.sh
-```
+The neural-bounding step is now in-process — a small ReLU MLP trained
+inside [arlabelvis/neural_bounding.py](arlabelvis/neural_bounding.py)
+whose level set is extracted *exactly* by clipping each polytope of the
+ReLU arrangement against the level-set plane. The
+`external/neural_bounding/` submodule and its conda environment are no
+longer required by the paper pipeline; they are kept only as the
+reference implementation that this in-process trainer matches.
 
 ## End-to-end LUT construction
 
-The pipeline is a four-stage handshake — each stage's output feeds the next:
+The paper pipeline is one call:
 
-1. **Voxelize the color space**: `uv run python -m scripts.to_voxels` → `external/neural_bounding/data/3D/<space>_<interval>_<dim>.binvox`
-2. **Train neural bounder** (in the submodule's conda env): `./run.sh` over that binvox → `data/neural_bounding_<space>_<dim>.binvox`
-3. **Build smoothed OFF**: `uv run python -m scripts.smooth_mesh` → `external/matlab_rgd/RGB2<space>_<smoothing>_<interval>.off`
-4. **Run all-pairs RGD**: `uv run python -m scripts.run_rgd_python --from-config` → `external/matlab_rgd/max_indices_<...>.txt`
-   - Uses [arlabelvis/rgd/admm.py](arlabelvis/rgd/admm.py) (port of Edelstein 2023's `rdg_ADMM.m`).
-   - Validated against MATLAB to rel L2 ≤ 5e-14 on a 10K-vertex mesh, 100% argmax agreement on 642-source all-pairs, 99.8% on non-symmetric 2562-source mesh with every mismatch a <5e-15 plateau flip. See `validation/compare_matlab_vs_python.py` (8 regression tiers) and `validation/MATLAB_PORT_PLAN.md`.
-   - Fallback A/B reference: `matlab -batch "cd('external/matlab_rgd'); demo"` writes the same file in the same format. Only needed for independent verification.
-5. **Assemble + interpolate LUT**: `uv run python -m scripts.full_pipeline` → `AllCandidateLABvals_<...>.txt`
-
-For figures and metrics:
-
-```bash
-uv run python -m scripts.render_lut_cube <lab-file> <rgb-file> -o figures/cube.png
-uv run python -m scripts.render_hue_histogram <lab-file> <rgb-file> -o figures/hue.png
-uv run python -m scripts.metrics_report
+```python
+from arlabelvis.luts import LutConfig, get_lut
+lut = get_lut(LutConfig(working_space="CIELAB", shape="neural", metric="RGD",
+                        metric_rgd_alpha_hat=1.25, interval=1,
+                        output_space="sRGB"))
 ```
 
-For the scene side (replaces Unity):
+Internally: ``generate_input_grid → to_working_space → build_candidates →
+score_argmax → render_candidate → dense_lut_from_sparse``. Every method in
+the paper is a configuration of that pipeline (see
+[scripts/paper/_configs.py](scripts/paper/_configs.py) for the named
+configs). Results are content-addressable-cached under ``data/luts/cache/``.
+
+All paper figures and tables regenerate via:
 
 ```bash
-uv run python -m scripts.process_scene_video \
-  --video scene.mp4 --label-mask label.png \
-  --lab-file AllCandidateLABvals_*.txt --rgb-file AllCorrespondingRGBVals_*.txt \
-  -o data/label_colors_export.csv
+uv run python -m scripts.paper.reproduce_all                      # everything
+uv run python -m scripts.paper.reproduce_all --shortpaper-only    # VIS 2026 short paper
 ```
+
+Minute-long sanity check that the whole chain works (no neural, no MATLAB):
+
+```bash
+uv run python -m scripts.e2e_demo
+```
+
+Scene-side evaluation (per-frame CEC + LUT lookup over a video, replaces
+Unity): call ``arlabelvis.scene_video.process_scene_video(...)`` directly
+with an in-memory LUT from ``get_lut``. See
+[scripts/paper/tab_scene.py](scripts/paper/tab_scene.py) for the
+canonical usage.
 
 ## Validation
 

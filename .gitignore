@@ -52,3 +52,4 @@ __pycache__/
 # yt-dlp for dubai_marina_timelapse; clean dusk/daytime extracts via
 # scripts/paper/_extract_dubai_clips.py). Keep manifests + masks, skip mp4s.
 /data/scenes/*/video.mp4
+/results/shortpaper/figures/_tmp_*/

@@ -15,9 +15,19 @@
 #  along with binvox-rw-py. If not, see <http://www.gnu.org/licenses/>.
 #
 
-"""
-Binvox to Numpy and back.
+"""DEPRECATED — binvox round-trip support, vendored from Maturana 2012.
 
+The active LUT pipeline no longer touches binvox: ``shape='neural'`` uses
+the in-process MLP in ``arlabelvis.neural_bounding`` and extracts its
+exact level set directly. This module is kept only because Python's
+import system still needs the file referenced by ``arlabelvis.voxels``
+(itself deprecated). Do not depend on it from new code.
+
+Note: the ``write()`` function in this module is broken under Python 3
+(uses ``chr()`` to produce binary payload bytes); leaving as-is since
+it's never called from the live pipeline.
+
+Original docstring:
 
 >>> import numpy as np
 >>> import binvox_rw

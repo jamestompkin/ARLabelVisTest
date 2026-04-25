@@ -1,15 +1,42 @@
+"""Boundary-mesh construction from a 3-D point cloud + the dense input grid.
+
+Three exports:
+
+- ``points_to_mesh``       Gaussian-smoothed gamut mesh (voxelise → marching
+                           cubes → laplacian smooth → decimate → remesh).
+                           Consumed by the gaussian-smoothing path in
+                           ``arlabelvis.luts.build_candidates``.
+- ``generate_labs``        Dense sRGB input grid + its CIELAB image. The
+                           pre-input_space-generalisation entry point;
+                           kept as a thin wrapper over ``generate_input_grid``
+                           for back-compat.
+- ``generate_input_grid``  Sample a regular grid in any of {sRGB, CIELAB,
+                           OKLAB}. Returns ``(input_pts, srgb_pts)``: the
+                           grid in input-space coordinates plus their sRGB
+                           equivalents (the latter is what the dense LUT is
+                           indexed by, for downstream consumption).
+"""
+import logging
+
 import numpy as np
 import trimesh
 import trimesh.smoothing
 from skimage.measure import marching_cubes
 from scipy.ndimage import gaussian_filter
-import open3d as o3d
 
-def pointsToMesh(allLABs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3, post_decimate_smooth: int = 5, target_faces = 50000):
-    print(f"Input length: {len(allLABs):,}")
+from arlabelvis.colors import (convert_color, lab_to_srgb, oklab_to_srgb,
+                                srgb_to_lab)
 
-    mins = allLABs.min(axis=0)
-    maxs = allLABs.max(axis=0)
+_log = logging.getLogger(__name__)
+
+
+def points_to_mesh(all_labs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3,
+                   post_decimate_smooth: int = 5, target_faces=50000):
+    """Voxelise a LAB point cloud and marching-cubes out a watertight boundary mesh."""
+    _log.info("points_to_mesh: %d input points", len(all_labs))
+
+    mins = all_labs.min(axis=0)
+    maxs = all_labs.max(axis=0)
     ranges = maxs - mins + 1e-12
 
     longest = ranges.max()
@@ -19,7 +46,7 @@ def pointsToMesh(allLABs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3, pos
     padding = 2
     scale = (per_axis_res - 1 - 2 * padding) / ranges
 
-    idx = np.floor((allLABs - mins) * scale).astype(np.int32) + padding
+    idx = np.floor((all_labs - mins) * scale).astype(np.int32) + padding
     idx = np.clip(idx, 0, per_axis_res - 1)
 
     grid = np.zeros(tuple(per_axis_res), dtype=np.float32)
@@ -30,11 +57,13 @@ def pointsToMesh(allLABs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3, pos
     isovalue = blurred.max() * 0.5
     voxel_size = ranges / (per_axis_res - 1)
 
-    verts_vox, faces, normals, _ = marching_cubes(blurred, level=isovalue, spacing=tuple(voxel_size))
+    verts_vox, faces, normals, _ = marching_cubes(blurred, level=isovalue,
+                                                   spacing=tuple(voxel_size))
 
     verts = verts_vox + mins - (padding * voxel_size)
 
-    tm = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals, process=True)
+    tm = trimesh.Trimesh(vertices=verts, faces=faces,
+                         vertex_normals=normals, process=True)
 
     if pre_decimate_smooth > 0:
         trimesh.smoothing.filter_laplacian(tm, iterations=pre_decimate_smooth)
@@ -53,10 +82,13 @@ def pointsToMesh(allLABs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3, pos
 
     import pymeshlab
     ms = pymeshlab.MeshSet()
-    ms.add_mesh(pymeshlab.Mesh(vertex_matrix=tm.vertices.astype(np.float64), face_matrix=tm.faces.astype(np.int32)))
-    ms.meshing_isotropic_explicit_remeshing(iterations=5, targetlen=pymeshlab.PercentageValue(0.8))
+    ms.add_mesh(pymeshlab.Mesh(vertex_matrix=tm.vertices.astype(np.float64),
+                               face_matrix=tm.faces.astype(np.int32)))
+    ms.meshing_isotropic_explicit_remeshing(
+        iterations=5, targetlen=pymeshlab.PercentageValue(0.8))
     m = ms.current_mesh()
-    tm = trimesh.Trimesh(vertices=m.vertex_matrix(), faces=m.face_matrix(), process=True)
+    tm = trimesh.Trimesh(vertices=m.vertex_matrix(), faces=m.face_matrix(),
+                         process=True)
 
     if post_decimate_smooth > 0:
         trimesh.smoothing.filter_laplacian(tm, iterations=post_decimate_smooth)
@@ -66,210 +98,88 @@ def pointsToMesh(allLABs, sigma=0.25, vox=256, pre_decimate_smooth: int = 3, pos
 
     components = trimesh.graph.connected_components(tm.edges)
     if len(components) > 1:
-        print(f"WARNING: {len(components)} connected components found")
+        _log.warning("%d connected components; keeping the largest", len(components))
         tm = tm.submesh([max(components, key=len)], append=True)
 
-    print(f"Final mesh: {len(tm.vertices):,} vertices, {len(tm.faces):,} faces, watertight={tm.is_watertight}")
+    _log.info("points_to_mesh: %d verts, %d faces, watertight=%s",
+              len(tm.vertices), len(tm.faces), tm.is_watertight)
     return tm
-    
-    
-def insideMesh(point: np.array, mesh: trimesh.Trimesh):
-    containment = mesh.contains([point])
-    return containment[0]
 
 
-# ---- Mesh optimization (merged from utils/mesh_optimization.py) ----
+def generate_labs(interval: int = 16):
+    """Generate the input sRGB grid (at ``interval``) and its CIELAB image.
 
-import numpy as np
-import trimesh
-import torch
-import torch.nn.functional as F
-import numpy as np
-import trimesh
-# torch version: torch-2.5.1 + cu118
-
-def build_sdf_grid(mesh: trimesh.Trimesh, resolution: int = 64):
-    bounds_min = mesh.bounds[0].copy()
-    bounds_max = mesh.bounds[1].copy()
-    padding = (bounds_max - bounds_min) * 0.05
-    bounds_min -= padding
-    bounds_max += padding
-
-    lin = [np.linspace(bounds_min[i], bounds_max[i], resolution) for i in range(3)]
-    xx, yy, zz = np.meshgrid(*lin, indexing="ij")
-    pts = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], axis=1).astype(np.float32)
-
-    chunk_size = 10_000
-    distances = np.empty(len(pts), dtype=np.float32)
-    signs     = np.empty(len(pts), dtype=np.float32)
-    print("len")
-    print(len(pts))
-    for start in range(0, len(pts), chunk_size):
-        end   = min(start + chunk_size, len(pts))
-        print(end)
-        chunk = pts[start:end]
-        _, d, _ = trimesh.proximity.closest_point(mesh, chunk)
-        distances[start:end] = d.astype(np.float32)
-        signs[start:end]     = np.where(mesh.contains(chunk), -1.0, 1.0)
-
-    sdf = (distances * signs).reshape(resolution, resolution, resolution)
-    return torch.tensor(sdf), bounds_min, bounds_max
-
-
-def query_sdf(vertices: torch.Tensor, sdf_grid: torch.Tensor,
-              bounds_min: np.ndarray, bounds_max: np.ndarray) -> torch.Tensor:
-    bmin = torch.tensor(bounds_min, dtype=torch.float32, device=vertices.device)
-    bmax = torch.tensor(bounds_max, dtype=torch.float32, device=vertices.device)
-
-    coords = 2.0 * (vertices - bmin) / (bmax - bmin) - 1.0  # (V, 3)
-
-    sdf_in = sdf_grid.permute(2, 1, 0).unsqueeze(0).unsqueeze(0).to(vertices.device)
-    grid   = coords.view(1, 1, 1, -1, 3)   # (1, 1, 1, V, xyz)
-
-    out = F.grid_sample(sdf_in, grid, mode="bilinear",
-                        align_corners=True, padding_mode="border")
-    return out.view(-1)  # (V,)
-
-def build_laplacian(mesh: trimesh.Trimesh) -> torch.Tensor:
-    n = len(mesh.vertices)
-    edges = mesh.edges_unique       
-
-    src = np.concatenate([edges[:, 0], edges[:, 1]])
-    dst = np.concatenate([edges[:, 1], edges[:, 0]])
-    degree = np.bincount(src, minlength=n).astype(np.float32)
-
-    off_diag_vals = -1.0 / degree[src] 
-    diag_vals     = np.ones(n, dtype=np.float32)
-
-    rows = np.concatenate([src, np.arange(n)])
-    cols = np.concatenate([dst, np.arange(n)])
-    vals = np.concatenate([off_diag_vals, diag_vals])
-
-    idx = torch.tensor(np.stack([rows, cols]), dtype=torch.long)
-    val = torch.tensor(vals, dtype=torch.float32)
-    return torch.sparse_coo_tensor(idx, val, (n, n)).coalesce()
-
-def mesh_volume(vertices: torch.Tensor, faces: torch.Tensor) -> torch.Tensor:
-    v0 = vertices[faces[:, 0]]
-    v1 = vertices[faces[:, 1]]
-    v2 = vertices[faces[:, 2]]
-    return torch.abs((v0 * torch.cross(v1, v2, dim=1)).sum() / 6.0)
-
-
-def optimize_mesh(
-    original_mesh: trimesh.Trimesh, n_iters: int = 1000, lr: float = 1e-3, w_smooth: float = 1.0, w_inside: float = 100.0, w_volume: float = 0.1, sdf_resolution: int  = 64) -> trimesh.Trimesh:
-    sdf_grid, bounds_min, bounds_max = build_sdf_grid(original_mesh, sdf_resolution)
-
-    L = build_laplacian(original_mesh)
-
-    faces = torch.tensor(original_mesh.faces, dtype=torch.long)
-    verts = torch.tensor(original_mesh.vertices.copy(),
-                         dtype=torch.float32, requires_grad=True)
-
-    optimizer = torch.optim.Adam([verts], lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_iters)
-
-    initial_vol = mesh_volume(verts.detach(), faces).item()
-
-    for i in range(n_iters):
-        optimizer.zero_grad()
-
-        Lv = torch.sparse.mm(L, verts)     
-        smooth_loss = (Lv ** 2).mean()
-
-        sdf_vals = query_sdf(verts, sdf_grid, bounds_min, bounds_max)
-        inside_loss = F.relu(sdf_vals).pow(2).mean()   
-
-        vol = mesh_volume(verts, faces)
-        vol_loss = -(vol / initial_vol)
-
-        loss = w_smooth * smooth_loss + w_inside * inside_loss + w_volume * vol_loss
-        loss.backward()
-
-        optimizer.step()
-        scheduler.step()
-
-        if i % 100 == 0:
-            print(f"[{i:5d}/{n_iters}]  "
-                  f"loss={loss.item():9.5f}  "
-                  f"smooth={smooth_loss.item():.5f}  "
-                  f"inside={inside_loss.item():.5f}  "
-                  f"vol={vol.item():.5f}")
-
-    final_verts = verts.detach().cpu().numpy()
-    result = trimesh.Trimesh(vertices=final_verts,
-                             faces=original_mesh.faces,
-                             process=False)
-
-    print(f"Final volume   : {mesh_volume(verts.detach(), faces).item():.6f}")
-    return result
-
-
-def save_single_view(mesh, rotation_matrix, filename):
-    mesh_copy = trimesh.Trimesh(vertices=mesh.vertices.copy(), faces=mesh.faces.copy())
-    mesh_copy.visual.vertex_colors = mesh.visual.vertex_colors
-    s = trimesh.Scene(mesh)
-    s.apply_transform(rotation_matrix)
-    # png = s.save_image(resolution=[800,800], visible=True)
-    # Image.open(io.BytesIO(png)).save(filename + ".png")
-
-def save_views(mesh: trimesh.Trimesh):
-    r_quarter = trimesh.transformations.rotation_matrix(np.pi/2.0, [0, 1, 0])
-    r_half = trimesh.transformations.rotation_matrix(np.pi, [0, 1, 0])
-    r_three_quarter = trimesh.transformations.rotation_matrix(3.0*np.pi/2.0, [0, 1, 0])
-
-    save_single_view(mesh, r_quarter, "quarter_view")
-    save_single_view(mesh, r_half, "half_view")
-    save_single_view(mesh, r_three_quarter, "three_quarter_view")
-
-# ---- Helpers from (retired) main.py -----------------------------------------
-
-from arlabelvis.colors import sRGBtoLAB
-from arlabelvis.distances import euclidean_distance
-
-
-def generate_LABs(stepSize: int = 16):
-    """Generate the input RGB grid (at the given stepSize) and its CIELAB image.
-
-    stepSize=1 -> dense 256^3 sampling (16.7M points); larger steps are used
-    during exploration to keep MATLAB RGD tractable.
+    Equivalent to ``generate_input_grid('sRGB', interval)`` followed by a
+    sRGB→CIELAB conversion. Kept for back-compat — new code should use
+    ``generate_input_grid`` directly.
     """
-    allRGBs = np.array([[r - 1, g - 1, b - 1] for r in range(0, 257, stepSize)
-                                              for g in range(0, 257, stepSize)
-                                              for b in range(0, 257, stepSize)])
-    allRGBs = np.where(allRGBs < 0, 0, allRGBs)
-    allRGBs = np.where(allRGBs > 255, 255, allRGBs)
-    allLABs = sRGBtoLAB(allRGBs)
-    return allRGBs, allLABs
+    all_rgbs = np.array([[r - 1, g - 1, b - 1] for r in range(0, 257, interval)
+                                              for g in range(0, 257, interval)
+                                              for b in range(0, 257, interval)])
+    all_rgbs = np.where(all_rgbs < 0, 0, all_rgbs)
+    all_rgbs = np.where(all_rgbs > 255, 255, all_rgbs)
+    all_labs = srgb_to_lab(all_rgbs)
+    return all_rgbs, all_labs
 
 
-def get_mesh_vertex_colors(mesh, allLABs, allRGBs):
-    """Assign each mesh vertex the RGB of the nearest input LAB point."""
-    colors = []
-    for vert in mesh.vertices:
-        best_idx = 0
-        best_distance = euclidean_distance(vert, allLABs[0])
-        for i, lab in enumerate(allLABs):
-            distance = euclidean_distance(vert, lab)
-            if distance < best_distance:
-                best_idx = i
-                best_distance = distance
-        c = allRGBs[best_idx] / 255.0
-        colors.append([c[0], c[1], c[2], 1.0])
-    return np.array(colors)
+# Per-space sampling ranges for ``generate_input_grid``. CIELAB / OKLAB
+# extents are the empirical bounding box of the *sRGB gamut* in those
+# spaces (measured by transforming a 200k-sample uniform sRGB scatter,
+# rounded out a touch); sampling outside these is wasteful since
+# ``generate_input_grid`` already drops out-of-gamut points downstream.
+# CIELAB: L*∈[0,100], a*∈[-86,98], b*∈[-108,94].
+# OKLAB:  L∈[0,1],   a∈[-0.234,0.276], b∈[-0.311,0.198].
+_INPUT_SPACE_RANGES = {
+    "sRGB":   (np.array([0.0, 0.0, 0.0]),       np.array([255.0, 255.0, 255.0])),
+    "CIELAB": (np.array([0.0, -90.0, -110.0]),  np.array([100.0, 100.0, 95.0])),
+    "OKLAB":  (np.array([0.0, -0.24, -0.32]),   np.array([1.0, 0.28, 0.20])),
+}
 
 
-def assign_vertex_colors(mesh: trimesh.Trimesh, allLABs, furthest):
-    """Assign each mesh vertex the `furthest` RGB corresponding to the nearest LAB point."""
-    colors = []
-    for vertex in mesh.vertices:
-        closest = 0
-        closest_dist = 1e9
-        for i, lab in enumerate(allLABs):
-            d = euclidean_distance(lab, vertex)
-            if d < closest_dist:
-                closest = i
-                closest_dist = d
-        c = furthest[closest] / 255.0
-        colors.append([c[0], c[1], c[2], 1.0])
-    return np.array(colors)
+def generate_input_grid(input_space: str, interval: int = 16
+                        ) -> tuple[np.ndarray, np.ndarray]:
+    """Sample a regular grid in ``input_space``; return ``(input_pts, srgb_pts)``.
+
+    ``interval`` is interpreted as the *sRGB-cube* stride (so ``interval=1``
+    is dense 256^3, ``interval=8`` is 33^3, etc.); the same number of
+    samples per axis is used for non-sRGB spaces but laid out across the
+    space's natural range (see ``_INPUT_SPACE_RANGES``) rather than 0-255.
+
+    Sample-count formula: ``n_per_axis = ceil(256 / interval) + 1`` for
+    sRGB (matching ``range(0, 257, interval)``); same count is reused
+    verbatim for non-sRGB spaces so the grid resolutions are comparable.
+
+    For ``input_space='sRGB'`` this matches ``generate_labs(interval)``
+    exactly: ``input_pts == srgb_pts`` and both are integer-valued in
+    ``[0, 255]``.
+
+    For ``input_space='CIELAB'`` / ``'OKLAB'``: the returned ``srgb_pts``
+    is *float* and is the conversion of each grid point into sRGB. Some
+    grid cells fall outside the displayable sRGB gamut so their
+    ``srgb_pts`` values land outside ``[0, 255]``; callers that need only
+    in-gamut points should mask on
+    ``np.all((srgb_pts >= 0) & (srgb_pts <= 255), axis=1)``.
+    """
+    if input_space not in _INPUT_SPACE_RANGES:
+        raise ValueError(f"unknown input_space={input_space!r}")
+
+    if input_space == "sRGB":
+        # Match ``generate_labs`` exactly: integer sRGB values, with the
+        # ``r - 1`` shift that avoids the 256-aliased boundary, then clipped.
+        # This is a quirk of the original sampling — preserved for cache
+        # compatibility with prior LUTs.
+        all_rgbs = np.array([[r - 1, g - 1, b - 1]
+                             for r in range(0, 257, interval)
+                             for g in range(0, 257, interval)
+                             for b in range(0, 257, interval)])
+        all_rgbs = np.clip(all_rgbs, 0, 255)
+        return all_rgbs, all_rgbs.astype(np.float64)
+
+    n_per_axis = len(range(0, 257, interval))
+    lo, hi = _INPUT_SPACE_RANGES[input_space]
+    axis = np.linspace(0.0, 1.0, n_per_axis)
+    grid = np.stack(np.meshgrid(axis, axis, axis, indexing="ij"), axis=-1)
+    grid = grid.reshape(-1, 3)
+    input_pts = lo[None, :] + grid * (hi - lo)[None, :]
+    srgb_pts = convert_color(input_pts, input_space, "sRGB")
+    return input_pts, srgb_pts

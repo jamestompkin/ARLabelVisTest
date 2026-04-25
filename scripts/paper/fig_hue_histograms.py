@@ -1,28 +1,40 @@
-"""Figure: hue histograms for Euclidean, DeltaE76 (≈ΔE₀₀), and RGD LUTs.
+"""Short-paper fig:hue_hist: three hue histograms stacked by LaTeX.
 
-Thesis figures: fig:euclidean_hist, fig:original_hist, fig:final_histogram.
+Each output is a single-strip PNG of the LUT's output-hue distribution.
+Short paper compares the Kwon ΔE₀₀ baseline, CIELAB Euclidean, and our
+neural-bounded RGD construction.
+
+Outputs into SHORTPAPER_FIG_DIR:
+  - OriginalLABVals_hue.png                                     Kwon baseline
+  - AllCandidateLABvals_CIELAB_1_Euclidean_hue.png              CIELAB Euclidean
+  - AllCandidateLABvals_CIELAB_1_RGD_50_neural_256_hue.png      neural + RGD α̂=0.5
 """
 from arlabelvis.viz import render_hue_histogram
 
-from scripts.paper._configs import (LUT_CIELAB_EUCLIDEAN, LUT_CIELAB_DELTAE76,
-                                    LUT_CIELAB_NEURAL_RGD_025)
-from scripts.paper._lut_cache import get_lut
-from scripts.paper._shared import FIG_DIR, lut_to_srgb_u8
-
-OUT_EUCLIDEAN = FIG_DIR / "hue_histogram_euclidean.png"
-OUT_DELTAE76 = FIG_DIR / "hue_histogram_deltae76.png"
-OUT_RGD = FIG_DIR / "hue_histogram_rgd.png"
+from scripts.paper._configs import (LUT_CIELAB_DELTAE00, LUT_CIELAB_EUCLIDEAN,
+                                    LUT_CIELAB_NEURAL_RGD_050)
+from arlabelvis.luts import get_lut
+from arlabelvis.luts import lut_to_srgb_u8
+from scripts.paper._paths import fig_path
 
 
 def main():
-    for cfg, out, label in [
-        (LUT_CIELAB_EUCLIDEAN, OUT_EUCLIDEAN, "CIELAB + Euclidean"),
-        (LUT_CIELAB_DELTAE76, OUT_DELTAE76, "CIELAB + ΔE76 (Kwon baseline)"),
-        (LUT_CIELAB_NEURAL_RGD_025, OUT_RGD, "CIELAB + neural-bounded + RGD (α̂=0.25)"),
+    for cfg, filename, title in [
+        (LUT_CIELAB_DELTAE00,
+         "OriginalLABVals_hue.png",
+         r"CIELAB $\Delta E_{00}$ (Kwon baseline)"),
+        (LUT_CIELAB_EUCLIDEAN,
+         "AllCandidateLABvals_CIELAB_1_Euclidean_hue.png",
+         "CIELAB + Euclidean"),
+        (LUT_CIELAB_NEURAL_RGD_050,
+         "AllCandidateLABvals_CIELAB_1_RGD_50_neural_256_hue.png",
+         r"Ours: CIELAB + neural + RGD ($\hat\alpha=0.5$)"),
     ]:
-        lut = lut_to_srgb_u8(get_lut(cfg), cfg)
-        render_hue_histogram(lut, save_path=out, title=f"Hue distribution — {label}")
-        print(f"wrote {out}")
+        lut = lut_to_srgb_u8(get_lut(cfg), cfg.output_space)
+        render_hue_histogram(lut,
+                             save_path=fig_path("hue_histograms", filename),
+                             title=f"Hue distribution — {title}")
+        print(f"wrote hue_histograms/{filename}")
 
 
 if __name__ == "__main__":
