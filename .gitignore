@@ -53,3 +53,10 @@ __pycache__/
 # scripts/paper/_extract_dubai_clips.py). Keep manifests + masks, skip mp4s.
 /data/scenes/*/video.mp4
 /results/shortpaper/figures/_tmp_*/
+
+# Animation mp4/gif outputs (regenerable from scripts/paper/animate_*.py;
+# 0.3-1 MB each but regenerated on every render and not part of paper.tex)
+/results/shortpaper/figures/sphere_animation/
+/results/shortpaper/figures/alpha_hull_animation/
+/results/shortpaper/figures/gaussian_hull_animation/
+/results/shortpaper/figures/neural_bias_animation/
