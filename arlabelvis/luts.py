@@ -393,6 +393,7 @@ def _neural_candidates(working_pts: np.ndarray, all_rgbs: np.ndarray, *,
     *exactly* via polytope-arrangement clipping. ``bound_bias`` controls
     inner (negative) vs outer (positive) bound character; see
     ``arlabelvis.neural_bounding`` for the full design."""
+    from arlabelvis.device import default_device
     from arlabelvis.neural_bounding import (
         NeuralBoundingParams, neural_bounded_mesh_inprocess,
     )
@@ -400,7 +401,8 @@ def _neural_candidates(working_pts: np.ndarray, all_rgbs: np.ndarray, *,
         bound_bias=bound_bias,
         iterations=iterations,
     )
-    mesh = neural_bounded_mesh_inprocess(working_pts.astype(np.float32), params)
+    mesh = neural_bounded_mesh_inprocess(working_pts.astype(np.float32), params,
+                                         device=default_device())
     vertices = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.faces)
     if len(faces) > 2000:

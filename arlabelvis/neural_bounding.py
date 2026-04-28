@@ -38,6 +38,8 @@ import torch.nn as nn
 import torch.optim as optim
 import trimesh
 
+from arlabelvis.device import default_device
+
 _log = logging.getLogger(__name__)
 
 
@@ -142,7 +144,7 @@ class _AffineMap:
 
 def train_gamut_mlp(gamut_points: np.ndarray,
                     params: NeuralBoundingParams = NeuralBoundingParams(),
-                    device: str = "cpu",
+                    device: Optional[str] = None,
                     ) -> tuple[_GamutMLP, _AffineMap]:
     """Train a small MLP on the gamut indicator.
 
@@ -159,9 +161,11 @@ def train_gamut_mlp(gamut_points: np.ndarray,
     Returns ``(mlp, affine)`` for downstream mesh extraction in the same
     coordinate frame.
     """
+    if device is None:
+        device = default_device()
     pos_w, neg_w = _class_weights(params.bound_bias)
-    _log.info("neural_bounding: bound_bias=%+.2f → pos_weight=%.2f, neg_weight=%.2f",
-              params.bound_bias, pos_w, neg_w)
+    _log.info("neural_bounding: bound_bias=%+.2f → pos_weight=%.2f, neg_weight=%.2f (device=%s)",
+              params.bound_bias, pos_w, neg_w, device)
 
     torch.manual_seed(params.seed)
 
@@ -422,7 +426,7 @@ def _polygon_from_pattern(layers: list[tuple[np.ndarray, np.ndarray, bool]],
 
 def mesh_from_mlp(mlp: _GamutMLP, affine: _AffineMap,
                   params: NeuralBoundingParams = NeuralBoundingParams(),
-                  device: str = "cpu",
+                  device: Optional[str] = None,
                   pattern_samples: int = 50_000) -> trimesh.Trimesh:
     """Extract the **exact** piecewise-linear level set of the trained ReLU
     MLP: enumerate the activation patterns the surface visits, derive each
@@ -479,7 +483,7 @@ def mesh_from_mlp(mlp: _GamutMLP, affine: _AffineMap,
 
 def mesh_from_mlp_mc(mlp: _GamutMLP, affine: _AffineMap,
                       params: NeuralBoundingParams = NeuralBoundingParams(),
-                      device: str = "cpu") -> trimesh.Trimesh:
+                      device: Optional[str] = None) -> trimesh.Trimesh:
     """Marching-cubes mesh extraction in normalised ``[-1, 1]³``.
 
     Robust fallback for ``mesh_from_mlp``: any closed level set sampled
@@ -488,6 +492,8 @@ def mesh_from_mlp_mc(mlp: _GamutMLP, affine: _AffineMap,
     the level set is missed by the activation-pattern sampler. Coarser
     triangulation than the polytope path but always feeds RGD cleanly.
     """
+    if device is None:
+        device = default_device()
     from skimage.measure import marching_cubes
     res = max(16, int(params.mesh_resolution))
     g = np.linspace(-1.0, 1.0, res, dtype=np.float32)
@@ -510,7 +516,7 @@ def mesh_from_mlp_mc(mlp: _GamutMLP, affine: _AffineMap,
 def neural_bounded_mesh_inprocess(
     gamut_points: np.ndarray,
     params: NeuralBoundingParams = NeuralBoundingParams(),
-    device: str = "cpu",
+    device: Optional[str] = None,
 ) -> trimesh.Trimesh:
     """End-to-end: train MLP, extract mesh. Drop-in replacement for the
     external binvox pipeline. Few-second runtime on CPU at default params.
@@ -527,7 +533,10 @@ def neural_bounded_mesh_inprocess(
     optional.
     """
     mlp, affine = train_gamut_mlp(gamut_points, params, device)
-    mesh = mesh_from_mlp(mlp, affine, params, device)
+    # Move MLP to CPU for mesh extraction — polytope clipping and marching
+    # cubes are numpy-based and need CPU tensors.
+    mlp = mlp.cpu()
+    mesh = mesh_from_mlp(mlp, affine, params, "cpu")
     if (len(mesh.faces) == 0
             or not mesh.is_watertight
             or not mesh.is_winding_consistent):
@@ -537,7 +546,7 @@ def neural_bounded_mesh_inprocess(
             len(mesh.vertices), len(mesh.faces),
             getattr(mesh, "is_watertight", "?"),
         )
-        mesh = mesh_from_mlp_mc(mlp, affine, params, device)
+        mesh = mesh_from_mlp_mc(mlp, affine, params, "cpu")
     return mesh
 
 

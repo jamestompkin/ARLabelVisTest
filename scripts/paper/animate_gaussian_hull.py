@@ -6,26 +6,19 @@ isosurface. Sweeping σ continuously deforms the candidate mesh from a
 voxelised approximation of the convex hull (σ→0, staircased) to a softly
 rounded blob (σ large).
 
-Metric is fixed at Euclidean (L2 in CIELAB) so the only thing changing is
-the candidate-mesh geometry. The chain mirrors ``animate_alpha_hull.py``
-(vertex-centric) so the two animations are directly comparable — σ sweeps
-geometry while α̂ sweeps the metric::
+Metric is fixed at CIEDE2000 so the only thing changing is the
+candidate-mesh geometry. The chain is::
 
     σ --> blurred indicator field
        --> isosurface mesh (verts on the σ-smoothed boundary)
-       --> per-vertex Euclidean argmax (farthest mesh sibling)
+       --> per-input farthest mesh vertex (CIEDE2000)
        --> per-vertex nearest displayable sRGB
-       --> per-input nearest hull vertex → inherits vertex's argmax sRGB
-
-Using per-input Euclidean argmax instead (input-centric) would always pick
-one of the ~8 extremal sRGB corners regardless of σ (blue/green dominate
-because sRGB blue is the most extreme CIELAB point, L2≈135 from centroid).
-The vertex-centric approach lets σ reshape the Voronoi partition.
+       --> per-input output sRGB
 
 Three panels per frame, same layout as ``animate_alpha_hull.py``:
 
 1. 3D CIELAB scatter — gamut backdrop + isosurface mesh wireframe + mesh
-   vertices coloured by their argmax output sRGB. Geometric context.
+   vertices coloured by their nearest displayable sRGB. Geometric context.
 2. Input partition (a*, b*) — input voxels coloured by output sRGB.
 3. Pushforward (log-log) — K, K_eff, per-rank vlines.
 
@@ -42,6 +35,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from scipy.ndimage import gaussian_filter
@@ -54,6 +48,86 @@ from arlabelvis.meshing import generate_input_grid
 from scripts.paper._paths import fig_path
 
 _log = logging.getLogger(__name__)
+
+# --- GPU setup ---
+_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _delta_e00_chunk_gpu(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """CIEDE2000 between rows a (R,3) and cols b (N,3) → (R,N).
+
+    a[:, i] is (R,) and b[:, i] is (N,). We unsqueeze to (R,1) and (1,N)
+    so every intermediate is (R,N).
+    """
+    L1 = a[:, 0].unsqueeze(1); a1 = a[:, 1].unsqueeze(1); b1 = a[:, 2].unsqueeze(1)
+    L2 = b[:, 0].unsqueeze(0); a2 = b[:, 1].unsqueeze(0); b2 = b[:, 2].unsqueeze(0)
+
+    C1 = torch.sqrt(a1 * a1 + b1 * b1)
+    C2 = torch.sqrt(a2 * a2 + b2 * b2)
+    Cbar = 0.5 * (C1 + C2)
+    Cbar7 = Cbar ** 7
+    G = 0.5 * (1.0 - torch.sqrt(Cbar7 / (Cbar7 + 25.0 ** 7)))
+    a1p = (1.0 + G) * a1
+    a2p = (1.0 + G) * a2
+    C1p = torch.sqrt(a1p * a1p + b1 * b1)
+    C2p = torch.sqrt(a2p * a2p + b2 * b2)
+    h1p = torch.rad2deg(torch.atan2(b1, a1p)) % 360.0
+    h2p = torch.rad2deg(torch.atan2(b2, a2p)) % 360.0
+
+    dLp = L2 - L1
+    dCp = C2p - C1p
+
+    dhp = h2p - h1p
+    dhp = torch.where(dhp > 180.0, dhp - 360.0, dhp)
+    dhp = torch.where(dhp < -180.0, dhp + 360.0, dhp)
+    dhp = torch.where(C1p * C2p == 0.0, torch.zeros_like(dhp), dhp)
+    dHp = 2.0 * torch.sqrt(C1p * C2p) * torch.sin(torch.deg2rad(dhp / 2.0))
+
+    Lbp = 0.5 * (L1 + L2)
+    Cbp = 0.5 * (C1p + C2p)
+    hsum = h1p + h2p
+    hdiff = torch.abs(h1p - h2p)
+    hbp = torch.where(C1p * C2p == 0.0, hsum,
+                      torch.where(hdiff <= 180.0, 0.5 * hsum,
+                                  torch.where(hsum < 360.0, 0.5 * (hsum + 360.0),
+                                              0.5 * (hsum - 360.0))))
+
+    T = (1.0 - 0.17 * torch.cos(torch.deg2rad(hbp - 30.0))
+         + 0.24 * torch.cos(torch.deg2rad(2.0 * hbp))
+         + 0.32 * torch.cos(torch.deg2rad(3.0 * hbp + 6.0))
+         - 0.20 * torch.cos(torch.deg2rad(4.0 * hbp - 63.0)))
+    dtheta = 30.0 * torch.exp(-(((hbp - 275.0) / 25.0) ** 2))
+    Cbp7 = Cbp ** 7
+    Rc = 2.0 * torch.sqrt(Cbp7 / (Cbp7 + 25.0 ** 7))
+    Lm50 = Lbp - 50.0
+    SL = 1.0 + (0.015 * Lm50 * Lm50) / torch.sqrt(20.0 + Lm50 * Lm50)
+    SC = 1.0 + 0.045 * Cbp
+    SH = 1.0 + 0.015 * Cbp * T
+    RT = -torch.sin(2.0 * torch.deg2rad(dtheta)) * Rc
+
+    term_L = dLp / SL
+    term_C = dCp / SC
+    term_H = dHp / SH
+    return torch.sqrt(term_L * term_L + term_C * term_C + term_H * term_H
+                      + RT * term_C * term_H)
+
+
+def _input_argmax_gpu(inputs: np.ndarray, hull: np.ndarray) -> np.ndarray:
+    """For each input (M,3), find index of farthest hull vertex (N,3) by CIEDE2000.
+
+    Returns (M,) int64 array of indices into ``hull``.
+    """
+    inp = torch.as_tensor(inputs, dtype=torch.float32, device=_device)
+    h = torch.as_tensor(hull, dtype=torch.float32, device=_device)
+    M, N = inp.shape[0], h.shape[0]
+    row_chunk = max(64, int(1.5e9 / (N * 4)))
+    result = np.empty(M, dtype=np.int64)
+    for start in range(0, M, row_chunk):
+        end = min(start + row_chunk, M)
+        dE = _delta_e00_chunk_gpu(inp[start:end], h)  # (chunk, N)
+        result[start:end] = torch.argmax(dE, dim=1).cpu().numpy()
+        del dE
+    return result
 
 
 def _voxelise_dense_gamut(vox: int = 256, padding: int = 2
@@ -95,7 +169,7 @@ def _mesh_at_sigma(grid: np.ndarray, mins: np.ndarray,
     """Blur indicator + marching cubes + decimate → (verts, faces) at this σ.
 
     Skips the pymeshlab remeshing and Laplacian smoothing the production path
-    runs — we need geometry for Euclidean argmax, not a Cholesky-clean RGD
+    runs — we need geometry for CIEDE2000 argmax, not a Cholesky-clean RGD
     manifold. Cheaper and more frame-to-frame stable (no stochastic remesh).
     """
     if sigma <= 0:
@@ -107,13 +181,7 @@ def _mesh_at_sigma(grid: np.ndarray, mins: np.ndarray,
     isovalue = blurred.max() * 0.5
     verts_vox, faces, _, _ = marching_cubes(blurred, level=isovalue,
                                               spacing=tuple(voxel_size))
-    # The voxelisation scale is (res - 1 - 2*padding) / ranges, so the correct
-    # inverse is (verts_vox - padding*voxel_size) * (res-1)/(res-1-2*padding) + mins.
-    # The simpler verts_vox + mins - padding*voxel_size misses that scale factor
-    # (~1.016–1.033 per axis) and places vertices 2–3 CIELAB units inside the gamut.
-    per_axis_res = np.array(grid.shape, dtype=np.float64)
-    scale_factor = (per_axis_res - 1) / (per_axis_res - 1 - 2 * padding)
-    verts = (verts_vox - padding * voxel_size) * scale_factor + mins
+    verts = verts_vox + mins - (padding * voxel_size)
     if len(faces) > target_faces:
         verts, faces = _decimate_mesh(verts, faces, target_faces=target_faces)
     return verts.astype(np.float64), faces.astype(np.int64)
@@ -212,13 +280,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--frames", type=int, default=60)
-    p.add_argument("--smin", type=float, default=0.0,
-                   help="minimum σ (0 = bare voxelised hull, staircased)")
-    p.add_argument("--smax", type=float, default=8.0,
-                   help="maximum σ (large = smoothed blob)")
-    p.add_argument("--target-faces", type=int, default=5000,
-                   help="decimate isosurface to this many faces (matches "
-                        "subdiv=2 of animate_alpha_hull for cross-comparison)")
+    p.add_argument("--sigma", type=float, default=3.0,
+                   help="fixed Gaussian blur σ")
+    p.add_argument("--tf-min", type=int, default=4,
+                   help="minimum target faces (start of sweep, K≈4)")
+    p.add_argument("--tf-max", type=int, default=5000,
+                   help="maximum target faces (end of sweep)")
     p.add_argument("--vox", type=int, default=256,
                    help="voxel resolution along the longest CIELAB axis")
     p.add_argument("--fps", type=int, default=30)
@@ -254,42 +321,40 @@ def main():
 
     grid, mins, voxel_size, padding = _voxelise_dense_gamut(vox=args.vox)
 
-    # --- σ schedule ---
-    sigmas = np.linspace(args.smin, args.smax, args.frames)
-    print(f"[anim] {args.frames} frames, sigma {args.smin} -> {args.smax}",
-          flush=True)
+    # --- target-faces schedule (log-spaced for smooth K progression) ---
+    tf_schedule = np.unique(np.geomspace(args.tf_min, args.tf_max,
+                                          args.frames).astype(int))
+    # Recompute frames to match deduplicated schedule.
+    args.frames = len(tf_schedule)
+    sigma = args.sigma
+    print(f"[anim] {args.frames} frames, sigma={sigma}, "
+          f"target_faces {args.tf_min} -> {args.tf_max}", flush=True)
 
-    # --- per-frame mesh + Euclidean argmax (the slow part) ---
+    # --- per-frame mesh + CIEDE2000 argmax (the slow part) ---
     import time
     per_frame_out_rgb = []
     per_frame_mesh = []  # list of (verts, faces, edges, vert_rgb)
     ks = []
     t0 = time.perf_counter()
-    for fi, sigma in enumerate(sigmas):
+    for fi, tf in enumerate(tf_schedule):
         verts, faces = _mesh_at_sigma(grid, mins, voxel_size, padding,
-                                       float(sigma), args.target_faces)
+                                       sigma, int(tf))
         # Per-vertex nearest displayable sRGB.
         vert_rgb = _nearest_rgb(verts, seed_cielab, all_rgbs_seed).astype(np.uint8)
-        # Self-argmax: for each vertex, find its Euclidean-farthest sibling.
-        # Used for both vertex colouring (panel 1) and the per-input output
-        # (panels 2 & 3), matching animate_alpha_hull's vertex-centric structure.
-        d2_self = np.sum((verts[:, None, :] - verts[None, :, :]) ** 2, axis=-1)
-        vert_out_rgb = vert_rgb[np.argmax(d2_self, axis=1)]
-        # Each input maps to its nearest hull vertex and inherits that vertex's
-        # argmax sRGB — directly analogous to animate_alpha_hull's input_to_vert.
-        input_to_vert = cKDTree(verts).query(seed_cielab)[1]
-        out_rgb = vert_out_rgb[input_to_vert]
+        # CIEDE2000 argmax: for each input voxel, which mesh vertex is farthest.
+        argmax_vert = _input_argmax_gpu(seed_cielab, verts)
+        out_rgb = vert_rgb[argmax_vert]
         per_frame_out_rgb.append(out_rgb)
         per_frame_mesh.append(
-            (verts, faces, _unique_edges(faces), vert_out_rgb)
+            (verts, faces, _unique_edges(faces), vert_rgb)
         )
         palette, _ = _palette_from_per_seed_rgb(out_rgb)
         ks.append(len(palette))
-        if (fi + 1) % 5 == 0 or fi == 0 or fi == len(sigmas) - 1:
+        if (fi + 1) % 5 == 0 or fi == 0 or fi == len(tf_schedule) - 1:
             dt = time.perf_counter() - t0
             rate = (fi + 1) / dt
-            eta = (len(sigmas) - fi - 1) / rate if rate > 0 else float("inf")
-            print(f"  [{fi + 1}/{len(sigmas)}] sigma={sigma:.3f}  "
+            eta = (len(tf_schedule) - fi - 1) / rate if rate > 0 else float("inf")
+            print(f"  [{fi + 1}/{len(tf_schedule)}] tf={tf}  "
                   f"verts={len(verts)} faces={len(faces)}  K={ks[-1]}  "
                   f"({rate:.2f} fr/s, ETA {eta / 60:.1f} min)", flush=True)
     hist_x_max = max(ks)
@@ -306,11 +371,11 @@ def main():
     def update(frame_idx):
         if (frame_idx % 10) == 0 or frame_idx == args.frames - 1:
             print(f"  render frame {frame_idx + 1}/{args.frames}  "
-                  f"sigma={sigmas[frame_idx]:.3f}", flush=True)
+                  f"tf={tf_schedule[frame_idx]}", flush=True)
         verts, faces, edges, vert_rgb = per_frame_mesh[frame_idx]
         _draw_frame(
             (ax_3d, ax_2d, ax_hist),
-            sigma=float(sigmas[frame_idx]),
+            sigma=sigma,
             mesh_verts=verts, mesh_edges=edges,
             mesh_vert_rgb=vert_rgb,
             seed_cielab=seed_cielab,
