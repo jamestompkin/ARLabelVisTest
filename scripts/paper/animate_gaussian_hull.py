@@ -1,31 +1,37 @@
-"""Animate the hull-Gaussian-smoothed candidate mesh as σ varies.
+"""Animate the Gaussian-hull lookup-texture construction as mesh resolution varies.
 
-σ is the *geometric* knob on the hull-Gaussian substrate: voxelise the dense
-sRGB gamut in CIELAB, Gaussian-blur the indicator field, marching-cubes the
-isosurface. Sweeping σ continuously deforms the candidate mesh from a
-voxelised approximation of the convex hull (σ→0, staircased) to a softly
-rounded blob (σ large).
+Algorithm
+---------
+1. Sample sRGB values on a regular grid in [0, 255]³ (interval=16 → 4913 inputs).
+2. Convert every sampled sRGB value to CIELAB.
+3. Independently, voxelise the **full** sRGB gamut (interval=1, 16.7 M colours)
+   in CIELAB, Gaussian-blur the binary indicator field (σ fixed), and extract
+   a triangle-mesh isosurface via marching cubes.  Decimate the mesh to
+   ``target_faces`` faces.  This mesh approximates the gamut boundary in CIELAB.
+4. Build a lookup texture (LUT): for every input sRGB value [r, g, b], find
+   the mesh vertex that is **farthest** from that input's CIELAB coordinate
+   using the CIEDE2000 colour-difference metric.  Map that vertex back to its
+   nearest displayable sRGB.  Store the result at LUT[r, g, b].
+5. Count how many times each unique output sRGB appears in the LUT.  The
+   number of distinct colours is K; their frequency distribution is the
+   "pushforward".
 
-Metric is fixed at CIEDE2000 so the only thing changing is the
-candidate-mesh geometry. The chain is::
+The animation sweeps ``target_faces`` from a small value (K ≈ 4) to a large
+value (K > 200), showing how mesh resolution controls the richness of the
+output palette.
 
-    σ --> blurred indicator field
-       --> isosurface mesh (verts on the σ-smoothed boundary)
-       --> per-input farthest mesh vertex (CIEDE2000)
-       --> per-vertex nearest displayable sRGB
-       --> per-input output sRGB
-
-Three panels per frame, same layout as ``animate_alpha_hull.py``:
+Three panels per frame (same layout as ``animate_alpha_hull.py``):
 
 1. 3D CIELAB scatter — gamut backdrop + isosurface mesh wireframe + mesh
-   vertices coloured by their nearest displayable sRGB. Geometric context.
-2. Input partition (a*, b*) — input voxels coloured by output sRGB.
-3. Pushforward (log-log) — K, K_eff, per-rank vlines.
+   vertices coloured by their nearest displayable sRGB.
+2. Input partition (a*, b*) — input voxels coloured by their LUT output sRGB.
+3. Pushforward (log-log) — K, K_eff, per-rank vlines showing the frequency
+   of each output colour in the LUT.
 
 Usage::
 
     uv run python -m scripts.paper.animate_gaussian_hull --mp4
-    uv run python -m scripts.paper.animate_gaussian_hull --frames 60 --smin 0 --smax 8
+    uv run python -m scripts.paper.animate_gaussian_hull --frames 60 --tf-min 4 --tf-max 5000
 """
 from __future__ import annotations
 
