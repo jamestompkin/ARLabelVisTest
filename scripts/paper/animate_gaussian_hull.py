@@ -7,18 +7,25 @@ voxelised approximation of the convex hull (σ→0, staircased) to a softly
 rounded blob (σ large).
 
 Metric is fixed at Euclidean (L2 in CIELAB) so the only thing changing is
-the candidate-mesh geometry. The chain is::
+the candidate-mesh geometry. The chain mirrors ``animate_alpha_hull.py``
+(vertex-centric) so the two animations are directly comparable — σ sweeps
+geometry while α̂ sweeps the metric::
 
     σ --> blurred indicator field
        --> isosurface mesh (verts on the σ-smoothed boundary)
-       --> per-input farthest mesh vertex (Euclidean L2)
+       --> per-vertex Euclidean argmax (farthest mesh sibling)
        --> per-vertex nearest displayable sRGB
-       --> per-input output sRGB
+       --> per-input nearest hull vertex → inherits vertex's argmax sRGB
+
+Using per-input Euclidean argmax instead (input-centric) would always pick
+one of the ~8 extremal sRGB corners regardless of σ (blue/green dominate
+because sRGB blue is the most extreme CIELAB point, L2≈135 from centroid).
+The vertex-centric approach lets σ reshape the Voronoi partition.
 
 Three panels per frame, same layout as ``animate_alpha_hull.py``:
 
 1. 3D CIELAB scatter — gamut backdrop + isosurface mesh wireframe + mesh
-   vertices coloured by their nearest displayable sRGB. Geometric context.
+   vertices coloured by their argmax output sRGB. Geometric context.
 2. Input partition (a*, b*) — input voxels coloured by output sRGB.
 3. Pushforward (log-log) — K, K_eff, per-rank vlines.
 
@@ -100,7 +107,13 @@ def _mesh_at_sigma(grid: np.ndarray, mins: np.ndarray,
     isovalue = blurred.max() * 0.5
     verts_vox, faces, _, _ = marching_cubes(blurred, level=isovalue,
                                               spacing=tuple(voxel_size))
-    verts = verts_vox + mins - (padding * voxel_size)
+    # The voxelisation scale is (res - 1 - 2*padding) / ranges, so the correct
+    # inverse is (verts_vox - padding*voxel_size) * (res-1)/(res-1-2*padding) + mins.
+    # The simpler verts_vox + mins - padding*voxel_size misses that scale factor
+    # (~1.016–1.033 per axis) and places vertices 2–3 CIELAB units inside the gamut.
+    per_axis_res = np.array(grid.shape, dtype=np.float64)
+    scale_factor = (per_axis_res - 1) / (per_axis_res - 1 - 2 * padding)
+    verts = (verts_vox - padding * voxel_size) * scale_factor + mins
     if len(faces) > target_faces:
         verts, faces = _decimate_mesh(verts, faces, target_faces=target_faces)
     return verts.astype(np.float64), faces.astype(np.int64)
@@ -257,13 +270,18 @@ def main():
                                        float(sigma), args.target_faces)
         # Per-vertex nearest displayable sRGB.
         vert_rgb = _nearest_rgb(verts, seed_cielab, all_rgbs_seed).astype(np.uint8)
-        # Euclidean argmax: for each input voxel, which mesh vertex is farthest.
-        d2 = np.sum((seed_cielab[:, None, :] - verts[None, :, :]) ** 2, axis=-1)
-        argmax_vert = np.argmax(d2, axis=1)
-        out_rgb = vert_rgb[argmax_vert]
+        # Self-argmax: for each vertex, find its Euclidean-farthest sibling.
+        # Used for both vertex colouring (panel 1) and the per-input output
+        # (panels 2 & 3), matching animate_alpha_hull's vertex-centric structure.
+        d2_self = np.sum((verts[:, None, :] - verts[None, :, :]) ** 2, axis=-1)
+        vert_out_rgb = vert_rgb[np.argmax(d2_self, axis=1)]
+        # Each input maps to its nearest hull vertex and inherits that vertex's
+        # argmax sRGB — directly analogous to animate_alpha_hull's input_to_vert.
+        input_to_vert = cKDTree(verts).query(seed_cielab)[1]
+        out_rgb = vert_out_rgb[input_to_vert]
         per_frame_out_rgb.append(out_rgb)
         per_frame_mesh.append(
-            (verts, faces, _unique_edges(faces), vert_rgb)
+            (verts, faces, _unique_edges(faces), vert_out_rgb)
         )
         palette, _ = _palette_from_per_seed_rgb(out_rgb)
         ks.append(len(palette))

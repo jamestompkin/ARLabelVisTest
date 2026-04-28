@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # Core numerical stack
-    "numpy>=1.24",
+    "numpy>=1.24,<2",
     "scipy>=1.10",
     "matplotlib>=3.7",
     "pandas>=2.0",
@@ -16,16 +16,14 @@ dependencies = [
     "open3d>=0.18",
     "scikit-image>=0.22",
     "alphashape>=1.3",
-    # PyTorch is used by utils/mesh_optimization.py for Mode.SMOOTH_MESH=="pytorch"
-    # CPU wheel by default; to use CUDA, install torch from the PyTorch index:
-    #   uv pip install --index-url https://download.pytorch.org/whl/cu121 torch
-    "torch>=2.0",
+    # PyTorch — fetched from the official PyTorch CPU wheel index so that macOS
+    # x86_64 wheels are available (PyPI stopped hosting them after ~2.2).
+    # To use CUDA, override in uv.sources with a cu121/cu124 index instead.
+    "torch>=2.0,<2.3",
     # Scene / video I/O (for the Python scene processor replacing Unity)
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
-    "opencv-python>=4.9",
     "pymeshlab>=2025.7.post1",
-    "libigl>=2.6.2",
     "threadpoolctl>=3.6.0",
     "pypardiso>=0.4.7",
     "cholespy>=2.2.0",
@@ -34,3 +32,14 @@ dependencies = [
 
 [tool.uv]
 package = false
+override-dependencies = [
+    "mkl; sys_platform == 'linux'",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

@@ -13,8 +13,10 @@ asymmetric-BCE class-weight ratio used during MLP training (Liu 2024
 |bound_bias| ≈ 3 corresponds to Liu's converged class-weight ratio of 20.
 
 Metric is Euclidean (L2 in CIELAB) so the only thing changing is the
-candidate-mesh geometry. Same panel layout as ``animate_alpha_hull.py``
-and ``animate_gaussian_hull.py``.
+candidate-mesh geometry. Assignment is vertex-centric (matching
+``animate_alpha_hull.py`` and ``animate_gaussian_hull.py``): each mesh
+vertex finds its Euclidean-farthest sibling; inputs NN-map to the mesh
+and inherit their nearest vertex's argmax sRGB.
 
 Usage::
 
@@ -216,12 +218,16 @@ def main():
             continue
         vert_rgb = _nearest_rgb(verts, seed_cielab,
                                   all_rgbs_seed).astype(np.uint8)
-        d2 = np.sum((seed_cielab[:, None, :] - verts[None, :, :]) ** 2, axis=-1)
-        argmax_vert = np.argmax(d2, axis=1)
-        out_rgb = vert_rgb[argmax_vert]
+        # Self-argmax: for each vertex, find its Euclidean-farthest sibling.
+        # Vertex-centric assignment matches animate_alpha_hull/gaussian_hull.
+        d2_self = np.sum((verts[:, None, :] - verts[None, :, :]) ** 2, axis=-1)
+        vert_out_rgb = vert_rgb[np.argmax(d2_self, axis=1)]
+        # Each input inherits its nearest mesh vertex's argmax sRGB.
+        input_to_vert = cKDTree(verts).query(seed_cielab)[1]
+        out_rgb = vert_out_rgb[input_to_vert]
         per_frame_out_rgb.append(out_rgb)
         per_frame_mesh.append(
-            (verts, faces, _unique_edges(faces), vert_rgb)
+            (verts, faces, _unique_edges(faces), vert_out_rgb)
         )
         palette, _ = _palette_from_per_seed_rgb(out_rgb)
         ks.append(len(palette))
