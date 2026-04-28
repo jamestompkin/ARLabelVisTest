@@ -117,14 +117,21 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Stage 1: dense input grid (16.7M sRGB voxels) → CIELAB ---
-    print("[bake-new] stage 1: dense input grid (interval=1)...", flush=True)
+    # Build the 256^3 grid directly. ``generate_input_grid("sRGB", interval=1)``
+    # returns 257^3 points (sRGB 0..256 inclusive), which doesn't reshape into
+    # the 256^3 LUT shape. We want exactly the LUT-index domain.
+    print("[bake-new] stage 1: dense input grid (256^3)...", flush=True)
     t0 = time.perf_counter()
-    rgb_int, _ = generate_input_grid("sRGB", interval=1)
-    print(f"  {len(rgb_int)} voxels  ({time.perf_counter()-t0:.1f}s)",
+    rr, gg, bb = np.meshgrid(np.arange(256, dtype=np.float64),
+                              np.arange(256, dtype=np.float64),
+                              np.arange(256, dtype=np.float64),
+                              indexing="ij")
+    rgb_int = np.stack([rr.ravel(), gg.ravel(), bb.ravel()], axis=-1)
+    print(f"  {len(rgb_int):,} voxels  ({time.perf_counter()-t0:.1f}s)",
           flush=True)
     print("  converting to CIELAB...", flush=True)
     t0 = time.perf_counter()
-    lab = srgb_to_lab(rgb_int.astype(np.float64))
+    lab = srgb_to_lab(rgb_int)
     print(f"  CIELAB done  ({time.perf_counter()-t0:.1f}s)", flush=True)
     rgb_u8 = rgb_int.astype(np.uint8)
 
@@ -245,6 +252,18 @@ def main():
                 print(f"    [{n_done:>5}/{len(sources):>5}]  {rate:.1f} src/s, "
                       f"ETA {eta/60:.1f} min", flush=True)
     print(f"  RGD done ({(time.perf_counter()-t0)/60:.1f} min)", flush=True)
+
+    # --- CHECKPOINT: save the expensive RGD result so a stage-6/7 crash
+    # doesn't waste 80 min. Also save mesh + admission for resume support. ---
+    ckpt_path = out_dir / "neural_rgd_125_checkpoint.npz"
+    print(f"[bake-new] checkpoint: saving RGD result to {ckpt_path}",
+          flush=True)
+    np.savez(ckpt_path,
+             new_argmax_per_vert=new_argmax_per_vert,
+             verts=verts, faces=faces,
+             closest_admitted_voxel_per_vert=closest_admitted_voxel_per_vert,
+             admit=admit, voxel_to_vert=voxel_to_vert)
+    print("  checkpoint saved", flush=True)
 
     # --- Stage 6: route every input voxel → output sRGB ---
     print("[bake-new] stage 6: building dense LUT...", flush=True)
