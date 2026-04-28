@@ -60,3 +60,9 @@ __pycache__/
 /results/shortpaper/figures/alpha_hull_animation/
 /results/shortpaper/figures/gaussian_hull_animation/
 /results/shortpaper/figures/neural_bias_animation/
+
+# Validation artifacts: large dense LUTs + RGD checkpoints. The .md report
+# is committed; the binary outputs are regenerable via scripts/paper/
+# bake_neural_rgd_new.py (~80 min on 19 cores).
+/results/shortpaper/validation/*.npy
+/results/shortpaper/validation/*.npz
